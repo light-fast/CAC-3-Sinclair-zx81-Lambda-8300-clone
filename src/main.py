@@ -1,15 +1,18 @@
+import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from audio_decoder import AudioDecoderFrame  # 新增音频解码模块
+# 导入底层解码与编码模块
+from audio_decoder import AudioDecoderFrame
 from basic_decoder import process_cac3_bin
+from basic_encoder import basic_to_wav, encode_basic_text_to_cac3_bin
 from hex_viewer import format_hex_and_char_bytes
 from signal_analyzer import SignalAnalyzerFrame
 from z80_disasm import disassemble_z80_bytes
 
 
 # ==========================================
-# 1. BASIC 解码工作区 UI
+# 1. BASIC 解码工作区 UI (BIN -> BASIC)
 # ==========================================
 class BasicDecoderFrame(ttk.Frame):
 
@@ -154,9 +157,7 @@ class BasicDecoderFrame(ttk.Frame):
         ) = process_cac3_bin(fn, format_hex_and_char_bytes)
 
         self.lbl_filename.config(text=f'"{parsed_name}"')
-        self.lbl_sys_info.config(
-            text=sys_info if sys_info else "解析失败"
-        )
+        self.lbl_sys_info.config(text=sys_info if sys_info else "解析失败")
 
         self.txt_sys_bytes.config(state=tk.NORMAL)
         self.txt_sys_bytes.delete("1.0", tk.END)
@@ -246,7 +247,223 @@ class BasicDecoderFrame(ttk.Frame):
 
 
 # ==========================================
-# 2. ROM/BIN 文件浏览器 UI
+# 2. 独立模块：BASIC 源码 转 BIN 文件 (BASIC -> BIN)
+# ==========================================
+class BasicToBinFrame(ttk.Frame):
+
+    def __init__(self, parent, root_app):
+        super().__init__(parent, padding="10")
+        self.root_app = root_app
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        cfg_frame = ttk.LabelFrame(self, text=" BIN 导出参数 ", padding="8")
+        cfg_frame.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
+
+        ttk.Label(cfg_frame, text="SAVE 文件名:").pack(
+            side=tk.LEFT, padx=5
+        )
+        self.var_save_name = tk.StringVar(value="TEST")
+        self.entry_save_name = ttk.Entry(
+            cfg_frame, textvariable=self.var_save_name, width=12
+        )
+        self.entry_save_name.pack(side=tk.LEFT, padx=5)
+
+        self.btn_convert = ttk.Button(
+            cfg_frame,
+            text="⚡ 生成并导出 BIN 文件",
+            command=self.convert_to_bin,
+        )
+        self.btn_convert.pack(side=tk.RIGHT, padx=5)
+
+        editor_group = ttk.LabelFrame(
+            self, text=" 📝 输入 BASIC 源码 ", padding="8"
+        )
+        editor_group.grid(row=1, column=0, sticky=tk.NSEW, pady=5)
+        editor_group.rowconfigure(0, weight=1)
+        editor_group.columnconfigure(0, weight=1)
+
+        scroll = ttk.Scrollbar(editor_group)
+        scroll.grid(row=0, column=1, sticky=tk.NS)
+
+        self.txt_editor = tk.Text(
+            editor_group,
+            font=("Consolas", 11),
+            bg="#1E1E1E",
+            fg="#00E5FF",
+            insertbackground="#FFFFFF",
+            yscrollcommand=scroll.set,
+            wrap=tk.NONE,
+        )
+        self.txt_editor.grid(row=0, column=0, sticky=tk.NSEW)
+        scroll.config(command=self.txt_editor.yview)
+
+        sample_code = (
+            "10 REM CAC-3 / LAMBDA 8300 TEST\n"
+            "20 CLS\n"
+            '30 PRINT "********************************"\n'
+            '40 PRINT "*  WELCOME TO CAC-3 / LAMBDA   *"\n'
+            '50 PRINT "********************************"\n'
+            "60 LET PX=2\n"
+            "65 LET PY=2\n"
+            '70 PRINT AT PY,PX; "*"\n'
+            "80 STOP"
+        )
+        self.txt_editor.insert(tk.END, sample_code)
+
+    def convert_to_bin(self):
+        basic_text = self.txt_editor.get("1.0", tk.END).strip()
+        if not basic_text:
+            messagebox.showwarning("警告", "请输入 BASIC 代码！")
+            return
+
+        save_name = self.var_save_name.get().strip() or "TEST"
+
+        try:
+            fn_bin = filedialog.asksaveasfilename(
+                title="保存 CAC-3 BIN 文件",
+                initialfile=f"{save_name.lower()}.bin",
+                filetypes=[("Binary Files", "*.bin"), ("All Files", "*.*")],
+            )
+            if not fn_bin:
+                return
+
+            bin_data = encode_basic_text_to_cac3_bin(
+                basic_text, save_filename=save_name
+            )
+            with open(fn_bin, "wb") as f:
+                f.write(bin_data)
+
+            messagebox.showinfo(
+                "导出成功",
+                f"✓ BIN 文件生成完成！\n路径: {fn_bin}\n大小: {len(bin_data):,} 字节",
+            )
+        except Exception as e:
+            messagebox.showerror("导出失败", f"错误详情:\n{str(e)}")
+
+
+# ==========================================
+# 3. 独立模块：BIN 文件 转 WAV 音频 (BIN -> WAV)
+# ==========================================
+class BinToWavFrame(ttk.Frame):
+
+    def __init__(self, parent, root_app):
+        super().__init__(parent, padding="10")
+        self.root_app = root_app
+
+        self.columnconfigure(0, weight=1)
+
+        # 1. 选择 BIN 输入文件
+        input_group = ttk.LabelFrame(self, text=" 输入 BIN 文件 ", padding="10")
+        input_group.grid(row=0, column=0, sticky=tk.EW, pady=5)
+        input_group.columnconfigure(1, weight=1)
+
+        ttk.Label(input_group, text="选择 BIN 文件: ").grid(
+            row=0, column=0, sticky=tk.W
+        )
+        self.var_bin_path = tk.StringVar()
+        self.entry_bin_path = ttk.Entry(
+            input_group, textvariable=self.var_bin_path
+        )
+        self.entry_bin_path.grid(row=0, column=1, sticky=tk.EW, padx=5)
+
+        self.btn_browse_bin = ttk.Button(
+            input_group, text="浏览...", command=self.browse_bin_file
+        )
+        self.btn_browse_bin.grid(row=0, column=2, sticky=tk.E)
+
+        # 2. 采样率与参数设置
+        param_group = ttk.LabelFrame(
+            self, text=" WAV 音频调制参数 ", padding="10"
+        )
+        param_group.grid(row=1, column=0, sticky=tk.EW, pady=5)
+
+        ttk.Label(param_group, text="采样率 (Sample Rate):").grid(
+            row=0, column=0, sticky=tk.W, padx=5
+        )
+        self.var_sample_rate = tk.StringVar(value="44100")
+        self.combo_sample_rate = ttk.Combobox(
+            param_group,
+            textvariable=self.var_sample_rate,
+            values=["22050", "44100", "48000"],
+            width=10,
+        )
+        self.combo_sample_rate.grid(row=0, column=1, sticky=tk.W, padx=5)
+
+        ttk.Label(param_group, text="载波频率 (Hz):").grid(
+            row=0, column=2, sticky=tk.W, padx=(20, 5)
+        )
+        self.var_carrier_freq = tk.StringVar(value="1200")
+        self.entry_carrier_freq = ttk.Entry(
+            param_group, textvariable=self.var_carrier_freq, width=8
+        )
+        self.entry_carrier_freq.grid(row=0, column=3, sticky=tk.W, padx=5)
+
+        # 3. 转换动作按钮
+        act_group = ttk.Frame(self, padding="10")
+        act_group.grid(row=2, column=0, sticky=tk.EW, pady=10)
+
+        self.btn_convert_wav = ttk.Button(
+            act_group, text="🎵 开始转换并保存 WAV 音频", command=self.convert_bin_to_wav
+        )
+        self.btn_convert_wav.pack(fill=tk.X, ipady=5)
+
+    def browse_bin_file(self):
+        fn = filedialog.askopenfilename(
+            title="选择 BIN 二进制文件",
+            filetypes=[("Binary Files", "*.bin"), ("All Files", "*.*")],
+        )
+        if fn:
+            self.var_bin_path.set(fn)
+
+    def convert_bin_to_wav(self):
+        bin_path = self.var_bin_path.get().strip()
+        if not bin_path or not os.path.exists(bin_path):
+            messagebox.showwarning("警告", "请选择有效的 BIN 文件！")
+            return
+
+        try:
+            sr = int(self.var_sample_rate.get())
+            cf = float(self.var_carrier_freq.get())
+        except ValueError:
+            messagebox.showerror("参数错误", "采样率和载波频率必须是有效的数字！")
+            return
+
+        # 建议 SaveAs 路径
+        default_wav_name = os.path.splitext(os.path.basename(bin_path))[0] + ".wav"
+        fn_wav = filedialog.asksaveasfilename(
+            title="保存 CAC-3 WAV 音频文件",
+            initialfile=default_wav_name,
+            filetypes=[("WAV Audio Files", "*.wav"), ("All Files", "*.*")],
+        )
+        if not fn_wav:
+            return
+
+        try:
+            # 读取 BIN 数据并调用 basic_encoder 里的声音合成方法
+            with open(bin_path, "rb") as f:
+                bin_data = f.read()
+
+            from basic_encoder import generate_audio_from_bytes, wavfile
+
+            audio = generate_audio_from_bytes(
+                bin_data, sample_rate=sr, carrier_freq=cf
+            )
+            audio_int16 = (audio * 32767).astype("int16")
+            wavfile.write(fn_wav, sr, audio_int16)
+
+            duration = len(audio) / sr
+            messagebox.showinfo(
+                "转换成功",
+                f"✓ WAV 磁带音频合成完成！\n路径: {fn_wav}\n时长: {duration:.2f} 秒\n采样率: {sr} Hz",
+            )
+        except Exception as e:
+            messagebox.showerror("生成 WAV 失败", f"错误详情:\n{str(e)}")
+
+
+# ==========================================
+# 4. ROM/BIN 文件浏览器 UI
 # ==========================================
 class HexViewerFrame(ttk.Frame):
 
@@ -365,7 +582,7 @@ class HexViewerFrame(ttk.Frame):
 
 
 # ==========================================
-# 3. ROM 反汇编器 UI
+# 5. ROM 反汇编器 UI
 # ==========================================
 class DisassemblerFrame(ttk.Frame):
 
@@ -469,9 +686,7 @@ class DisassemblerFrame(ttk.Frame):
                 messagebox.showwarning("警告", "选择的文件为空！")
                 return
 
-            disassembled_code = disassemble_z80_bytes(
-                data, base_addr=base_addr
-            )
+            disassembled_code = disassemble_z80_bytes(data, base_addr=base_addr)
 
             self.lbl_status.config(
                 text=f"成功反汇编 {len(data):,} 字节 | 起始地址: ${base_addr:04X}"
@@ -483,21 +698,27 @@ class DisassemblerFrame(ttk.Frame):
             self.txt_disasm.config(state=tk.DISABLED)
 
         except Exception as e:
-            messagebox.showerror(
-                "反汇编出错", f"读取或解析文件失败:\n{str(e)}"
-            )
+            messagebox.showerror("反汇编出错", f"读取或解析文件失败:\n{str(e)}")
 
 
 # ==========================================
-# 4. 主应用程序入口与菜单控制
+# 6. 主应用程序入口与菜单控制
 # ==========================================
 class MainApplication(tk.Tk):
 
     def __init__(self):
         super().__init__()
         self.title("CAC-3 综合开发工具套件")
-        self.geometry("1100x800")
-        self.minsize(800, 600)
+        self.geometry("1100x850")
+        self.minsize(800, 650)
+
+        # 全局配置放大版按钮样式
+        self.style = ttk.Style()
+        self.style.configure(
+            "Big.TButton",
+            font=("Microsoft YaHei UI", 12, "bold"),
+            padding=10,
+        )
 
         self.container = ttk.Frame(self)
         self.container.pack(fill=tk.BOTH, expand=True)
@@ -518,8 +739,18 @@ class MainApplication(tk.Tk):
 
         tools_menu = tk.Menu(menubar, tearoff=0)
         tools_menu.add_command(
-            label="BASIC 解码", command=self.load_basic_decoder_module
+            label="BASIC 解码 (BIN -> 源码)",
+            command=self.load_basic_decoder_module,
         )
+        tools_menu.add_command(
+            label="BASIC 编码 (BASIC -> BIN)",
+            command=self.load_basic_to_bin_module,
+        )
+        tools_menu.add_command(
+            label="BIN 转 WAV 音频 (BIN -> WAV)",
+            command=self.load_bin_to_wav_module,
+        )
+        tools_menu.add_separator()
         tools_menu.add_command(
             label="ROM/BIN 文件浏览器", command=self.load_hex_viewer_module
         )
@@ -532,7 +763,8 @@ class MainApplication(tk.Tk):
             command=self.load_signal_analyzer_module,
         )
         tools_menu.add_command(
-            label="🎵 音频信号分析与解调-2", command=self.load_audio_decoder_module
+            label="🎵 音频信号分析与解调-2",
+            command=self.load_audio_decoder_module,
         )
         menubar.add_cascade(label="工具 (Tools)", menu=tools_menu)
 
@@ -540,7 +772,7 @@ class MainApplication(tk.Tk):
         help_menu.add_command(
             label="关于",
             command=lambda: messagebox.showinfo(
-                "关于", "CAC-3 综合开发分析套件\n版本: v2.5"
+                "关于", "CAC-3 综合开发分析套件\n版本: v2.7"
             ),
         )
         menubar.add_cascade(label="帮助 (Help)", menu=help_menu)
@@ -557,61 +789,60 @@ class MainApplication(tk.Tk):
         if self.current_frame is not None:
             self.current_frame.destroy()
 
-        home_frame = ttk.Frame(self.container, padding="30")
+        home_frame = ttk.Frame(self.container, padding="20")
         home_frame.pack(fill=tk.BOTH, expand=True)
 
         welcome_label = ttk.Label(
             home_frame,
             text="欢迎使用 CAC-3 工具箱",
-            font=("Consolas", 18, "bold"),
+            font=("Microsoft YaHei UI", 18, "bold"),
         )
-        welcome_label.pack(pady=(40, 10))
+        welcome_label.pack(pady=(10, 5))
 
         sub_label = ttk.Label(
             home_frame,
-            text="请在顶部菜单选择 【工具 (Tools)】 或下方快捷按钮载入相应模块",
-            font=("Consolas", 11),
+            text="请选择下方功能模块进入操作：",
+            font=("Microsoft YaHei UI", 11),
             foreground="#555555",
         )
-        sub_label.pack(pady=10)
+        sub_label.pack(pady=(0, 15))
 
-        btn_frame = ttk.Frame(home_frame)
-        btn_frame.pack(pady=20)
+        # 功能按钮区域 - 垂直排列单列
+        btn_container = ttk.Frame(home_frame)
+        btn_container.pack(expand=True)
 
-        ttk.Button(
-            btn_frame,
-            text="📜 启动 BASIC 解码器",
-            command=self.load_basic_decoder_module,
-        ).grid(row=0, column=0, padx=10, pady=5)
+        # 7 个独立功能按钮配置
+        buttons_spec = [
+            ("📜 BASIC 解码 (BIN -> 源码)", self.load_basic_decoder_module),
+            ("⚡ BASIC 编码 (BASIC -> BIN)", self.load_basic_to_bin_module),
+            ("🎵 BIN 转 WAV (BIN -> WAV)", self.load_bin_to_wav_module),
+            ("🔍 ROM / BIN 文件浏览器", self.load_hex_viewer_module),
+            ("⚙️ ROM 反汇编器 (Z80)", self.load_disassembler_module),
+            ("🌊 音频信号分析与解调-1", self.load_signal_analyzer_module),
+            ("🎵 音频信号分析与解调-2", self.load_audio_decoder_module),
+        ]
 
-        ttk.Button(
-            btn_frame,
-            text="🔍 ROM/BIN 文件浏览器",
-            command=self.load_hex_viewer_module,
-        ).grid(row=0, column=1, padx=10, pady=5)
-
-        ttk.Button(
-            btn_frame,
-            text="⚙️ ROM 反汇编器 (Z80)",
-            command=self.load_disassembler_module,
-        ).grid(row=1, column=0, padx=10, pady=5)
-
-        ttk.Button(
-            btn_frame,
-            text="🌊 音频信号分析与解调-1",
-            command=self.load_signal_analyzer_module,
-        ).grid(row=1, column=1, padx=10, pady=5)
-
-        ttk.Button(
-            btn_frame,
-            text="🎵 音频信号分析与解调-2",
-            command=self.load_audio_decoder_module,
-        ).grid(row=2, column=0, columnspan=2, padx=10, pady=5)
+        # 统一设置为宽度 35，上下内边距 ipady=6，字号加大
+        for text, cmd in buttons_spec:
+            btn = ttk.Button(
+                btn_container,
+                text=text,
+                command=cmd,
+                style="Big.TButton",
+                width=35,
+            )
+            btn.pack(pady=6, ipady=4)
 
         self.current_frame = home_frame
 
     def load_basic_decoder_module(self):
         self.switch_frame(BasicDecoderFrame)
+
+    def load_basic_to_bin_module(self):
+        self.switch_frame(BasicToBinFrame)
+
+    def load_bin_to_wav_module(self):
+        self.switch_frame(BinToWavFrame)
 
     def load_hex_viewer_module(self):
         self.switch_frame(HexViewerFrame)

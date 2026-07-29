@@ -3,12 +3,14 @@
 # ==========================================
 CAC3_CHAR_MAP = {
     0x00: " ", 0x01: "▘", 0x02: "▝", 0x03: "▀", 0x04: "▖", 0x05: "▌", 0x06: "▞", 0x07: "▛",
-    0x09: "◤", 0x0A: "◥", 0x0B: '"', 0x0D: "$", 0x10: "(", 0x11: ")", 0x12: ">", 0x13: "<", 0x14: "=", 0x15: "+",
-    0x16: "-", 0x17: "*", 0x18: "/", 0x19: ";", 0x1A: ",", 0x1B: ".", 0x1C: "0", 0x1D: "1", 0x1E: "2", 0x1F: "3",
-    0x20: "4", 0x21: "5", 0x22: "6", 0x23: "7", 0x24: "8", 0x25: "9", 0x26: "A", 0x27: "B", 0x28: "C", 0x29: "D",
-    0x2A: "E", 0x2B: "F", 0x2C: "G", 0x2D: "H", 0x2E: "I", 0x2F: "J", 0x30: "K", 0x31: "L", 0x32: "M", 0x33: "N",
-    0x34: "O", 0x35: "P", 0x36: "Q", 0x37: "R", 0x38: "S", 0x39: "T", 0x3A: "U", 0x3B: "V", 0x3C: "W", 0x3D: "X",
-    0x3E: "Y", 0x3F: "Z", 0x40: "THEN", 0x41: "TO", 0x42: "STEP", 0x43: "RND", 0x44: "INKEY$", 0x45: "PI",
+    0x08: "🚗", 0x09: "◤", 0x0A: "◥", 0x0B: '"', 0x0C: "🕷️", 0x0D: "$", 0x0E: "🦋", 0x0F: "👾",
+    0x10: "(", 0x11: ")", 0x12: ">", 0x13: "<", 0x14: "=", 0x15: "+", 0x16: "-", 0x17: "*",
+    0x18: "/", 0x19: ";", 0x1A: ",", 0x1B: ".", 0x1C: "0", 0x1D: "1", 0x1E: "2", 0x1F: "3",
+    0x20: "4", 0x21: "5", 0x22: "6", 0x23: "7", 0x24: "8", 0x25: "9", 0x26: "A", 0x27: "B",
+    0x28: "C", 0x29: "D", 0x2A: "E", 0x2B: "F", 0x2C: "G", 0x2D: "H", 0x2E: "I", 0x2F: "J",
+    0x30: "K", 0x31: "L", 0x32: "M", 0x33: "N", 0x34: "O", 0x35: "P", 0x36: "Q", 0x37: "R",
+    0x38: "S", 0x39: "T", 0x3A: "U", 0x3B: "V", 0x3C: "W", 0x3D: "X", 0x3E: "Y", 0x3F: "Z",
+    0x40: "THEN", 0x41: "TO", 0x42: "STEP", 0x43: "RND", 0x44: "INKEY$", 0x45: "PI",
 }
 
 CAC3_TOKENS = {
@@ -41,7 +43,7 @@ def decode_cac3_byte(byte_val):
 
 
 def parse_basic_program(data, start_idx):
-    """解析 BASIC 程序段（带有自动格式排版）"""
+    """解析 BASIC 程序段（精确区分引号内外的空格与 Token 格式化）"""
     basic_lines = []
     curr = start_idx
 
@@ -55,42 +57,86 @@ def parse_basic_program(data, start_idx):
         if line_len <= 0 or curr + 4 + line_len > len(data):
             break
 
-        line_bytes = data[curr + 4: curr + 4 + line_len]
+        line_bytes = data[curr + 4 : curr + 4 + line_len]
         curr += 4 + line_len
 
         tokens = []
         i = 0
+        in_quotes = False  # 引号状态标记
+
         while i < len(line_bytes):
             b = line_bytes[i]
-            if b == 0x76:  # 行结束符
+
+            # 0x76 行结束符
+            if b == 0x76:
                 break
-            elif b == 0x7E:  # 浮点常数跟随标记
+            # 0x7E 浮点数常数跟在 Token 后面的 5 字节浮点数数据，跳过
+            elif b == 0x7E:
                 i += 6
                 continue
-            elif b in CAC3_TOKENS:
-                tokens.append(f" {CAC3_TOKENS[b]} ")
-            elif b in CAC3_CHAR_MAP:
-                val = CAC3_CHAR_MAP[b]
-                if len(val) > 1 and val.isupper():
-                    tokens.append(f" {val} ")
+
+            # 检测双引号 (0x0B)
+            if b == 0x0B:
+                in_quotes = not in_quotes
+                tokens.append('"')
+                i += 1
+                continue
+
+            # 1. 如果在双引号内部：严格按字符映射还原，保留所有原始空格，不做任何 Token 解析
+            if in_quotes:
+                if b in CAC3_CHAR_MAP:
+                    tokens.append(CAC3_CHAR_MAP[b])
                 else:
-                    tokens.append(val)
+                    ch, _ = decode_cac3_byte(b)
+                    tokens.append(ch)
+
+            # 2. 如果在双引号外部：进行 Token 匹配与合理的格式化空格补充
             else:
-                ch, _ = decode_cac3_byte(b)
-                tokens.append(ch)
+                if b in CAC3_TOKENS:
+                    token_str = CAC3_TOKENS[b]
+                    # 前面如果不为空且不是空格，补一个空格
+                    if tokens and not tokens[-1].endswith(" "):
+                        tokens.append(" ")
+                    tokens.append(token_str)
+                    # Token 后面补一个空格
+                    tokens.append(" ")
+                elif b in CAC3_CHAR_MAP:
+                    val = CAC3_CHAR_MAP[b]
+                    # 如果是 4x 区域的多字符 Token (如 THEN, TO, STEP)
+                    if len(val) > 1 and val.isupper():
+                        if tokens and not tokens[-1].endswith(" "):
+                            tokens.append(" ")
+                        tokens.append(val)
+                        tokens.append(" ")
+                    else:
+                        tokens.append(val)
+                else:
+                    ch, _ = decode_cac3_byte(b)
+                    tokens.append(ch)
+
             i += 1
 
         raw_code = "".join(tokens)
 
-        formatted_chars = []
-        for j, char in enumerate(raw_code):
-            if j > 0:
-                prev = raw_code[j - 1]
-                if (prev.isdigit() and char.isalpha()) or (prev.isalpha() and char.isdigit()):
-                    formatted_chars.append(" ")
-            formatted_chars.append(char)
+        # 针对引号外部的代码进行多余连续空格的归一化（但绝对不触碰引号内部）
+        final_parts = []
+        part_in_quotes = False
+        # 按双引号分割段落：偶数索引是代码，奇数索引是字符串字面量
+        segments = raw_code.split('"')
 
-        clean_code = " ".join("".join(formatted_chars).split())
+        for idx, seg in enumerate(segments):
+            if idx % 2 == 0:
+                # 引号外部：清理多余的连续空格（如 "PRINT   AT" -> "PRINT AT"）
+                import re
+
+                clean_seg = re.sub(r" +", " ", seg)
+                final_parts.append(clean_seg)
+            else:
+                # 引号内部：保留原样，包括连续空格
+                final_parts.append(f'"{seg}"')
+
+        clean_code = "".join(final_parts).strip()
+
         if clean_code:
             basic_lines.append(f"{line_num} {clean_code}")
 
