@@ -621,6 +621,15 @@ class DisassemblerFrame(ttk.Frame):
         )
         self.entry_base_addr.pack(side=tk.LEFT, padx=5)
 
+        # Added export button here
+        self.btn_save = ttk.Button(
+            config_frame,
+            text="💾 导出到文本文件",
+            command=self.save_to_file,
+            state=tk.DISABLED,
+        )
+        self.btn_save.pack(side=tk.RIGHT, padx=5)
+
         self.lbl_status = ttk.Label(
             config_frame,
             text="准备就绪",
@@ -697,9 +706,30 @@ class DisassemblerFrame(ttk.Frame):
             self.txt_disasm.insert(tk.END, disassembled_code)
             self.txt_disasm.config(state=tk.DISABLED)
 
+            # Enable save button
+            self.btn_save.config(state=tk.NORMAL)
+
         except Exception as e:
             messagebox.showerror("反汇编出错", f"读取或解析文件失败:\n{str(e)}")
 
+    def save_to_file(self):
+        content = self.txt_disasm.get("1.0", tk.END).strip()
+        if not content:
+            messagebox.showwarning("警告", "没有可导出的反汇编内容！")
+            return
+
+        fn = filedialog.asksaveasfilename(
+            title="保存反汇编结果",
+            defaultextension=".txt",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+        )
+        if fn:
+            try:
+                with open(fn, "w", encoding="utf-8") as f:
+                    f.write(content)
+                messagebox.showinfo("成功", f"文件已保存至:\n{fn}")
+            except Exception as e:
+                messagebox.showerror("保存失败", f"无法写入文件:\n{str(e)}")
 
 # ==========================================
 # 6. 主应用程序入口与菜单控制
