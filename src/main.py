@@ -463,7 +463,113 @@ class BinToWavFrame(ttk.Frame):
 
 
 # ==========================================
-# 4. ROM/BIN 文件浏览器 UI
+# 新增：独立的文件展示面板 (用于同屏对比)
+# ==========================================
+class HexViewerPanel(ttk.Frame):
+    def __init__(self, parent_paned, file_path):
+        # 增加边框使其在分屏中更明显
+        super().__init__(parent_paned, padding="5", relief=tk.RIDGE, borderwidth=2)
+        self.file_path = file_path
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        # --- 文件属性与控制区 ---
+        info_frame = ttk.LabelFrame(self, text=f" {os.path.basename(file_path)} ", padding="5")
+        info_frame.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
+        info_frame.columnconfigure(4, weight=1)  # 将多余空间推给控制按钮
+
+        # 第一排：基本信息
+        ttk.Label(info_frame, text="大小:").grid(row=0, column=0, sticky=tk.W, padx=2)
+        self.lbl_file_size = ttk.Label(info_frame, text="0 B", font=("Consolas", 9, "bold"), foreground="#1E90FF")
+        self.lbl_file_size.grid(row=0, column=1, sticky=tk.W, padx=2)
+
+        ttk.Label(info_frame, text="跳过偏移:").grid(row=0, column=2, sticky=tk.W, padx=(10, 2))
+        self.var_offset = tk.StringVar(value="0")
+        self.entry_offset = ttk.Entry(info_frame, textvariable=self.var_offset, width=8)
+        self.entry_offset.grid(row=0, column=3, sticky=tk.W, padx=2)
+
+        # 按钮区
+        btn_frame = ttk.Frame(info_frame)
+        btn_frame.grid(row=0, column=4, sticky=tk.E)
+
+        self.btn_reload = ttk.Button(btn_frame, text="🔄 刷新", command=self.reload_file)
+        self.btn_reload.pack(side=tk.LEFT, padx=2)
+
+        # 每个面板自带关闭按钮
+        self.btn_close = ttk.Button(btn_frame, text="❌ 关闭", command=self.destroy)
+        self.btn_close.pack(side=tk.LEFT, padx=2)
+
+        # --- 数据内容展示区 ---
+        txt_container = ttk.Frame(self)
+        txt_container.grid(row=1, column=0, sticky=tk.NSEW)
+
+        sys_scroll = ttk.Scrollbar(txt_container)
+        sys_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        sys_xscroll = ttk.Scrollbar(txt_container, orient=tk.HORIZONTAL)
+        sys_xscroll.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.txt_hex_display = tk.Text(txt_container, font=("Consolas", 10), bg="#1E1E1E", fg="#FFD700",
+            yscrollcommand=sys_scroll.set, xscrollcommand=sys_xscroll.set, wrap=tk.NONE, )
+        self.txt_hex_display.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sys_scroll.config(command=self.txt_hex_display.yview)
+        sys_xscroll.config(command=self.txt_hex_display.xview)
+
+        # 初始化时直接加载文件内容
+        self._process_and_display_file()
+
+    def reload_file(self):
+        if os.path.exists(self.file_path):
+            self._process_and_display_file()
+        else:
+            messagebox.showwarning("警告", "文件不存在或已被移动！")
+
+    def _process_and_display_file(self):
+        offset_str = self.var_offset.get().strip()
+        offset = 0
+        if offset_str:
+            try:
+                # 兼容 0x 开头的十六进制、纯十六进制或十进制
+                if offset_str.lower().startswith('0x'):
+                    offset = int(offset_str, 16)
+                else:
+                    try:
+                        offset = int(offset_str)
+                    except ValueError:
+                        offset = int(offset_str, 16)
+            except ValueError:
+                messagebox.showerror("格式错误", "偏移量请输入有效的十进制或十六进制数值！")
+                return
+
+        try:
+            with open(self.file_path, "rb") as f:
+                data = f.read()
+
+            total_size = len(data)
+
+            if offset > 0 and offset >= total_size:
+                messagebox.showwarning("警告", f"偏移量 ({offset}) 已超出或等于文件总大小 ({total_size})！")
+                return
+
+            display_data = data[offset:]
+            display_len = len(display_data)
+
+            self.lbl_file_size.config(text=f"{display_len:,} B (0x{display_len:04X})")
+
+            # 关键改动：将 base_address 设置为 0，使左侧地址始终从 0000 开始
+            formatted_dump = format_hex_and_char_bytes(display_data, base_address=0)
+
+            self.txt_hex_display.config(state=tk.NORMAL)
+            self.txt_hex_display.delete("1.0", tk.END)
+            self.txt_hex_display.insert(tk.END, formatted_dump if formatted_dump else "--- 文件内容为空 ---")
+            self.txt_hex_display.config(state=tk.DISABLED)
+
+        except Exception as e:
+            messagebox.showerror("读取错误", f"无法读取或处理文件:\n{str(e)}")
+
+# ==========================================
+# 4. ROM/BIN 文件浏览器 UI (同屏分屏主控)
 # ==========================================
 class HexViewerFrame(ttk.Frame):
 
@@ -472,116 +578,33 @@ class HexViewerFrame(ttk.Frame):
         self.root_app = root_app
 
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.rowconfigure(1, weight=1)
 
+        # --- 顶部全局操作栏 ---
         top_frame = ttk.Frame(self)
         top_frame.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
-        top_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(top_frame, text="选择 ROM/BIN 文件: ").grid(
-            row=0, column=0, sticky=tk.W
-        )
-        self.file_path_var = tk.StringVar()
-        self.entry_path = ttk.Entry(top_frame, textvariable=self.file_path_var)
-        self.entry_path.grid(row=0, column=1, sticky=tk.EW, padx=5)
+        self.btn_add = ttk.Button(top_frame, text="➕ 载入并并排比对 ROM/BIN 文件", command=self.add_new_file)
+        self.btn_add.pack(side=tk.LEFT, padx=5)
 
-        self.btn_browse = ttk.Button(
-            top_frame, text="打开文件", command=self.load_rom_file
-        )
-        self.btn_browse.grid(row=0, column=2, sticky=tk.E)
+        ttk.Label(top_frame, text="（提示：你可以拖动面板之间的空白处来调整大小）", foreground="gray").pack(side=tk.LEFT,
+                                                                                                         padx=10)
 
-        info_frame = ttk.LabelFrame(self, text=" 文件属性 ", padding="5")
-        info_frame.grid(row=1, column=0, sticky=tk.EW, pady=5)
-        info_frame.columnconfigure(3, weight=1)
+        # --- 分屏容器 (PanedWindow) ---
+        # orient=tk.HORIZONTAL 表示左右排布。如果想上下排布可改为 tk.VERTICAL
+        self.paned_window = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        self.paned_window.grid(row=1, column=0, sticky=tk.NSEW, pady=5)
 
-        ttk.Label(info_frame, text="文件大小:").grid(
-            row=0, column=0, sticky=tk.W, padx=5
-        )
-        self.lbl_file_size = ttk.Label(
-            info_frame,
-            text="0 字节",
-            font=("Consolas", 10, "bold"),
-            foreground="#1E90FF",
-        )
-        self.lbl_file_size.grid(row=0, column=1, sticky=tk.W, padx=5)
-
-        ttk.Label(info_frame, text="总行数 (16B/行):").grid(
-            row=0, column=2, sticky=tk.W, padx=(20, 5)
-        )
-        self.lbl_total_lines = ttk.Label(
-            info_frame,
-            text="0 行",
-            font=("Consolas", 10, "bold"),
-            foreground="#2E8B57",
-        )
-        self.lbl_total_lines.grid(row=0, column=3, sticky=tk.W, padx=5)
-
-        viewer_group = ttk.LabelFrame(
-            self, text=" ROM / BIN 数据内容 (HEX 与 CAC-3 字符对照) "
-        )
-        viewer_group.grid(row=2, column=0, sticky=tk.NSEW, pady=5)
-
-        txt_container = ttk.Frame(viewer_group)
-        txt_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        sys_scroll = ttk.Scrollbar(txt_container)
-        sys_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        sys_xscroll = ttk.Scrollbar(txt_container, orient=tk.HORIZONTAL)
-        sys_xscroll.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.txt_hex_display = tk.Text(
-            txt_container,
-            font=("Consolas", 10),
-            bg="#1E1E1E",
-            fg="#FFD700",
-            yscrollcommand=sys_scroll.set,
-            xscrollcommand=sys_xscroll.set,
-            wrap=tk.NONE,
-        )
-        self.txt_hex_display.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sys_scroll.config(command=self.txt_hex_display.yview)
-        sys_xscroll.config(command=self.txt_hex_display.xview)
-
-    def load_rom_file(self):
-        fn = filedialog.askopenfilename(
-            title="选择 ROM/BIN 文件",
-            filetypes=[
-                ("ROM & BIN Files", "*.rom;*.bin"),
-                ("All Files", "*.*"),
-            ],
-        )
+    def add_new_file(self):
+        fn = filedialog.askopenfilename(title="选择 ROM/BIN 文件",
+            filetypes=[("ROM & BIN Files", "*.rom;*.bin"), ("All Files", "*.*"), ], )
         if not fn:
             return
-        self.file_path_var.set(fn)
 
-        try:
-            with open(fn, "rb") as f:
-                data = f.read()
+        # 创建新的面板并加入到分屏容器中
+        new_panel = HexViewerPanel(self.paned_window, fn)
+        self.paned_window.add(new_panel, weight=1)
 
-            file_len = len(data)
-            total_lines = (file_len + 15) // 16
-
-            self.lbl_file_size.config(
-                text=f"{file_len:,} 字节 (0x{file_len:04X})"
-            )
-            self.lbl_total_lines.config(text=f"{total_lines:,} 行")
-
-            formatted_dump = format_hex_and_char_bytes(data, base_address=0)
-
-            self.txt_hex_display.config(state=tk.NORMAL)
-            self.txt_hex_display.delete("1.0", tk.END)
-            self.txt_hex_display.insert(
-                tk.END,
-                formatted_dump if formatted_dump else "--- 文件内容为空 ---",
-            )
-            self.txt_hex_display.config(state=tk.DISABLED)
-
-        except Exception as e:
-            messagebox.showerror("读取错误", f"无法读取文件:\n{str(e)}")
-
-
-# ==========================================
 # 5. ROM 反汇编器 UI
 # ==========================================
 class DisassemblerFrame(ttk.Frame):
