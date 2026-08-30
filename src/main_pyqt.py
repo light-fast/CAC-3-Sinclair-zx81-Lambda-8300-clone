@@ -12,6 +12,7 @@ from basic_decoder import process_cac3_bin
 from basic_encoder import basic_to_wav, encode_basic_text_to_cac3_bin
 from hex_viewer_pyqt import format_hex_and_char_bytes
 from z80_disasm import disassemble_z80_bytes
+from z80_flow_disasm import disassemble_z80_flow
 
 # Import PyQt versions of analyzer modules
 from audio_decoder_pyqt import AudioDecoderFrame
@@ -918,6 +919,8 @@ class DisassemblerFrame(QWidget):
     def __init__(self, parent=None, root_app=None):
         super().__init__(parent)
         self.root_app = root_app
+        self.loaded_data = None  # Store loaded file data for reuse
+        self.loaded_file_path = None  # Store loaded file path
         self.init_ui()
 
     def init_ui(self):
@@ -949,6 +952,18 @@ class DisassemblerFrame(QWidget):
         self.var_base_addr.setFixedWidth(80)
         config_layout.addWidget(self.var_base_addr)
         
+        config_layout.addWidget(QLabel("起始地址: $"))
+        self.var_start_addr = QLineEdit("")
+        self.var_start_addr.setPlaceholderText("默认基址")
+        self.var_start_addr.setFixedWidth(80)
+        config_layout.addWidget(self.var_start_addr)
+        
+        config_layout.addWidget(QLabel("模式:"))
+        self.combo_mode = QComboBox()
+        self.combo_mode.addItems(["线性反汇编", "控制流反汇编"])
+        self.combo_mode.currentTextChanged.connect(self.on_mode_changed)
+        config_layout.addWidget(self.combo_mode)
+        
         config_layout.addStretch()
         
         self.lbl_status = QLabel("准备就绪")
@@ -977,6 +992,55 @@ class DisassemblerFrame(QWidget):
         dis_group.setLayout(dis_layout)
         layout.addWidget(dis_group, 1)
 
+    def on_mode_changed(self, mode):
+        """Handle mode change - auto-refresh if data is loaded"""
+        if self.loaded_data is not None:
+            self.perform_disassembly()
+
+    def perform_disassembly(self):
+        """Perform disassembly with current settings and loaded data"""
+        if self.loaded_data is None:
+            return
+
+        try:
+            base_str = self.var_base_addr.text().strip()
+            base_addr = int(base_str, 16) if base_str else 0x0000
+        except ValueError:
+            QMessageBox.critical(
+                self, "格式错误",
+                "起始基址请输入有效的十六进制数值（例如 0000 或 0200）"
+            )
+            return
+
+        try:
+            start_str = self.var_start_addr.text().strip()
+            start_addr = int(start_str, 16) if start_str else None
+        except ValueError:
+            QMessageBox.critical(
+                self, "格式错误",
+                "起始地址请输入有效的十六进制数值（例如 0000 或 0200）"
+            )
+            return
+
+        data = self.loaded_data
+
+        # Check which mode to use
+        mode = self.combo_mode.currentText()
+        
+        if mode == "控制流反汇编":
+            disassembled_code = disassemble_z80_flow(data, base_addr=base_addr, start_addr=start_addr)
+            mode_str = "控制流"
+        else:
+            disassembled_code = disassemble_z80_bytes(data, base_addr=base_addr)
+            mode_str = "线性"
+
+        # No truncation for either mode - display full output
+
+        start_display = f"${start_addr:04X}" if start_addr else f"${base_addr:04X}"
+        self.lbl_status.setText(f"成功{mode_str}反汇编 {len(data):,} 字节 | 起始地址: {start_display}")
+        self.txt_disasm.setText(disassembled_code)
+        self.btn_save.setEnabled(True)
+
     def load_and_disassemble(self):
         last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
         fn, _ = QFileDialog.getOpenFileName(
@@ -991,16 +1055,6 @@ class DisassemblerFrame(QWidget):
             self.root_app.save_last_directory(fn)
 
         try:
-            base_str = self.var_base_addr.text().strip()
-            base_addr = int(base_str, 16) if base_str else 0x0000
-        except ValueError:
-            QMessageBox.critical(
-                self, "格式错误",
-                "起始基址请输入有效的十六进制数值（例如 0000 或 0200）"
-            )
-            return
-
-        try:
             with open(fn, "rb") as f:
                 data = f.read()
 
@@ -1008,24 +1062,12 @@ class DisassemblerFrame(QWidget):
                 QMessageBox.warning(self, "警告", "选择的文件为空！")
                 return
 
-            # Limit disassembly to prevent crashes with very large files
-            max_disasm_size = 65536  # 64KB limit for disassembly
-            if len(data) > max_disasm_size:
-                QMessageBox.warning(
-                    self, "警告", 
-                    f"文件过大 ({len(data):,} 字节)，仅反汇编前 {max_disasm_size} 字节以防止崩溃。"
-                )
-                data = data[:max_disasm_size]
+            # Store loaded data for reuse
+            self.loaded_data = data
+            self.loaded_file_path = fn
 
-            disassembled_code = disassemble_z80_bytes(data, base_addr=base_addr)
-
-            # Limit display output
-            if len(disassembled_code) > 100000:
-                disassembled_code = disassembled_code[:100000] + "\n\n... (输出过长，已截断显示)"
-
-            self.lbl_status.setText(f"成功反汇编 {len(data):,} 字节 | 起始地址: ${base_addr:04X}")
-            self.txt_disasm.setText(disassembled_code)
-            self.btn_save.setEnabled(True)
+            # Perform disassembly
+            self.perform_disassembly()
 
         except Exception as e:
             QMessageBox.critical(self, "反汇编出错", f"读取或解析文件失败:\n{str(e)}")
