@@ -467,7 +467,7 @@ class HexViewerPanel(QFrame):
         self.lbl_file_size.setStyleSheet("color: #1E90FF;")
         info_layout.addWidget(self.lbl_file_size)
         
-        info_layout.addWidget(QLabel("跳过偏移:"))
+        info_layout.addWidget(QLabel("首字节偏移:"))
         self.var_offset = QLineEdit("0")
         self.var_offset.setFixedWidth(80)
         info_layout.addWidget(self.var_offset)
@@ -510,7 +510,7 @@ class HexViewerPanel(QFrame):
 
         # Status bar for position display
         self.status_label = QLabel("当前位置: --")
-        self.status_label.setFont(QFont("Consolas", 8))
+        self.status_label.setFont(QFont("Consolas", 9))
         self.status_label.setStyleSheet("background-color: #ecf0f1; padding: 2px;")
         layout.addWidget(self.status_label)
 
@@ -621,7 +621,7 @@ class HexViewerPanel(QFrame):
                 char_count += len(line) + 1  # +1 for newline
             
             if line_num >= len(lines):
-                self.status_label.setText("偏移: -- | 字节: --")
+                self.status_label.setText("相对偏移: -- | 字节内容: --")
                 return
             
             line = lines[line_num]
@@ -639,7 +639,7 @@ class HexViewerPanel(QFrame):
                     # The CHAR line has same structure, so use same position
                     is_hex_line = True
                 else:
-                    self.status_label.setText("偏移: -- | 字节: --")
+                    self.status_label.setText("相对偏移: -- | 字节内容: --")
                     return
             
             # Calculate byte offset in the HEX line
@@ -673,7 +673,7 @@ class HexViewerPanel(QFrame):
                 # Each HEX line represents 16 bytes, and there are 2 lines per 16 bytes (HEX + CHAR)
                 # So line_num // 2 gives the 16-byte block number
                 block_num = line_num // 2
-                absolute_offset = block_num * 16 + byte_offset
+                relative_offset = block_num * 16 + byte_offset
                 
                 # Add user offset
                 offset_str = self.var_offset.text().strip()
@@ -687,12 +687,12 @@ class HexViewerPanel(QFrame):
                 except ValueError:
                     base_offset = 0
                 
-                total_offset = base_offset + absolute_offset
-                self.status_label.setText(f"偏移: 0x{total_offset:X} | 字节: 0x{byte_value} ({int(byte_value, 16)})")
+                total_offset = base_offset + relative_offset
+                self.status_label.setText(f"相对偏移: 0x{relative_offset:X} | 字节内容: 0x{byte_value} ({int(byte_value, 16)})")
             else:
-                self.status_label.setText("偏移: -- | 字节: --")
+                self.status_label.setText("相对偏移: -- | 字节内容: --")
         except Exception as e:
-            self.status_label.setText(f"偏移: -- | 字节: -- (错误: {str(e)})")
+            self.status_label.setText(f"相对偏移: -- | 字节内容: -- (错误: {str(e)})")
 
     def on_mouse_click(self, event):
         """Handle mouse click"""
@@ -1239,6 +1239,11 @@ class MainApplication(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    font = QFont()
+    font.setPointSize(9)
+    QApplication.setFont(font)
+
     window = MainApplication()
     window.show()
     sys.exit(app.exec_())

@@ -484,7 +484,7 @@ class HexViewerPanel(ttk.Frame):
         self.lbl_file_size = ttk.Label(info_frame, text="0 B", font=("Consolas", 9, "bold"), foreground="#1E90FF")
         self.lbl_file_size.grid(row=0, column=1, sticky=tk.W, padx=2)
 
-        ttk.Label(info_frame, text="跳过偏移:").grid(row=0, column=2, sticky=tk.W, padx=(10, 2))
+        ttk.Label(info_frame, text="首字节偏移:").grid(row=0, column=2, sticky=tk.W, padx=(10, 2))
         self.var_offset = tk.StringVar(value="0")
         self.entry_offset = ttk.Entry(info_frame, textvariable=self.var_offset, width=8)
         self.entry_offset.grid(row=0, column=3, sticky=tk.W, padx=2)
