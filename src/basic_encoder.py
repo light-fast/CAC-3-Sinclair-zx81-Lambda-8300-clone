@@ -1,5 +1,8 @@
 import numpy as np
 import scipy.io.wavfile as wavfile
+import ctypes
+import struct
+import math
 
 # ==========================================
 # 1. 字符与 Token 编码表
@@ -31,6 +34,55 @@ SYMBOL_MAP = {
     '*': 0x17, '/': 0x18, ';': 0x19, ',': 0x1A, '.': 0x1B
 }
 
+class CAC3SysVariables(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [
+        # # 0x4000 - 0x4008 (Saved = No)
+        # ('ERR_NR', ctypes.c_uint8),           # 0x4000
+        # ('FLAGS', ctypes.c_uint8),            # 0x4001
+        # ('ERR_SP', ctypes.c_uint16),          # 0x4002
+        # ('RAMTOP', ctypes.c_uint16),          # 0x4004
+        # ('MODE', ctypes.c_uint8),             # 0x4006
+        # ('PPC', ctypes.c_uint16),             # 0x4007
+
+        # 0x4009 - 0x407C (Saved = Yes)
+        ('VERSN', ctypes.c_uint8),            # 0x4009, FFH
+        ('NXTLIN', ctypes.c_uint16),           # 0x400A, 407DH
+        ('PROGRAM', ctypes.c_uint16),          # 0x400C, 4396H
+        ('NXTLIN1', ctypes.c_uint16),           # 0x400E, 407EH
+        ('VARS', ctypes.c_uint16),            # 0x4010, end of basic + 1
+        ('DEST', ctypes.c_uint16),            # 0x4012, 0000H
+        ('E_LINE', ctypes.c_uint16),          # 0x4014, (0x4010) + 1
+        ('CH_ADD', ctypes.c_uint16),          # 0x4016
+        ('X_PTR', ctypes.c_uint16),           # 0x4018
+        ('STKBOT', ctypes.c_uint16),          # 0x401A
+        ('STKEND', ctypes.c_uint16),          # 0x401C
+        ('BERG', ctypes.c_uint8),             # 0x401E
+        ('MEM', ctypes.c_uint16),             # 0x401F
+        ('NUMIT', ctypes.c_uint8),            # 0x4021
+        ('DF_SZ', ctypes.c_uint8),            # 0x4022
+        ('S_TOP', ctypes.c_uint16),           # 0x4023
+        ('LAST_K', ctypes.c_uint16),          # 0x4025
+        ('BOUNCE', ctypes.c_uint8),           # 0x4027
+        ('MARGIN', ctypes.c_uint8),           # 0x4028
+        ('E-PPC', ctypes.c_uint16),           # 0x4029
+        ('OLDPPC', ctypes.c_uint16),          # 0x402B
+        ('FLAGX', ctypes.c_uint8),            # 0x402D
+        ('STRLEN', ctypes.c_uint16),          # 0x402E
+        ('T_ADDR', ctypes.c_uint16),          # 0x4030
+        ('SEED', ctypes.c_uint16),            # 0x4032
+        ('FRAMES', ctypes.c_uint16),          # 0x4034
+        ('COORDS_X', ctypes.c_uint8),         # 0x4036 (x-coordinate)
+        ('COORDS_Y', ctypes.c_uint8),         # 0x4037 (y-coordinate)
+        ('PR_CC', ctypes.c_uint8),            # 0x4038
+        ('S_POSN_COL', ctypes.c_uint8),       # 0x4039 (column)
+        ('S_POSN_LINE', ctypes.c_uint8),      # 0x403A (line)
+        ('CDFLAG', ctypes.c_uint8),           # 0x403B
+        ('PRBUFF', ctypes.c_uint8 * 33),      # 0x403C (33 bytes)
+        ('MEMBOT', ctypes.c_uint8 * 30),      # 0x405D (30 bytes)
+        ('BLINK', ctypes.c_uint16),           # 0x407B (2 bytes)
+    ]
+
 
 def encode_char(c: str) -> int:
     """单个字符转换为 Lambda 8300 字节码"""
@@ -46,6 +98,48 @@ def encode_char(c: str) -> int:
     return 0x00
 
 
+def encode_number(num_str: str) -> bytearray:
+    """将数字字符串转换为 ZX81 浮点数格式（0x7E + 5 字节 = 6 字节）"""
+    try:
+        value = float(num_str)
+    except ValueError:
+        # 如果解析失败，返回 0
+        value = 0.0
+    
+    # ZX81 浮点数格式：6 字节
+    # 字节 0: 0x7E (浮点数标记)
+    # 字节 1-5: 指数和尾数
+
+    
+    # 使用 IEEE 754 双精度作为中间表示
+    # 然后转换为 ZX81 格式（简化版本）
+    if value < 0:
+        sign = 0x80
+        value = -value
+    else:
+        sign = 0x00
+    
+    # 计算指数（以 2 为底）
+    if value > 0:
+        exponent = math.floor(math.log2(value))
+        mantissa = value / (2 ** exponent)
+    else:
+        exponent = 0
+        mantissa = 0.0
+    
+    # ZX81 指数偏移为 128
+    exponent_byte = (exponent + 128) & 0xFF
+    
+    # 尾数转换为 4 字节（简化）
+    mantissa_bytes = bytearray(struct.pack('>f', mantissa))
+    
+    result = bytearray([0x7E])
+    result.append(exponent_byte | sign)
+    result.extend(mantissa_bytes[0:4])
+    
+    return result
+
+
 def encode_basic_statement(code_str: str) -> bytearray:
     """编码单条 BASIC 语句文本"""
     stmt_bytes = bytearray()
@@ -54,6 +148,10 @@ def encode_basic_statement(code_str: str) -> bytearray:
 
     while i < len(code_str):
         ch = code_str[i]
+
+        if ch == ' ' and not in_quotes:
+            i += 1
+            continue
 
         if ch == '"':
             in_quotes = not in_quotes
@@ -65,6 +163,7 @@ def encode_basic_statement(code_str: str) -> bytearray:
             stmt_bytes.append(encode_char(ch))
             i += 1
         else:
+            # First, try to match tokens (keywords)
             matched = False
             for token_str in sorted(BASIC_TOKENS.keys(), key=len, reverse=True):
                 if code_str[i:].upper().startswith(token_str):
@@ -79,8 +178,23 @@ def encode_basic_statement(code_str: str) -> bytearray:
                     break
 
             if not matched:
-                stmt_bytes.append(encode_char(ch))
-                i += 1
+                # If no token matched, check for number
+                if ch.isdigit() or (ch == '.' and i + 1 < len(code_str) and code_str[i + 1].isdigit()):
+                    # Parse number
+                    num_str = ''
+                    while i < len(code_str) and (code_str[i].isdigit() or code_str[i] == '.'):
+                        num_str += code_str[i]
+                        i += 1
+                    
+                    # For all numbers, output character form first, then floating point
+                    for digit in num_str:
+                        stmt_bytes.append(encode_char(digit))
+                    stmt_bytes.extend(encode_number(num_str))
+                    continue
+                else:
+                    # Encode as regular character
+                    stmt_bytes.append(encode_char(ch))
+                    i += 1
 
     stmt_bytes.append(0x76)  # 行尾换行符
     return stmt_bytes
@@ -98,7 +212,7 @@ def encode_basic_text_to_cac3_bin(basic_text: str, save_filename: str = "") -> b
             code |= 0x80  # 最后一个字符最高位置 1
         header_bytes.append(code)
 
-    header_bytes.append(0xFF)
+    # header_bytes.append(0xFF)
 
     # 2. 构造 BASIC 程序段
     lines = basic_text.strip().splitlines()
@@ -126,18 +240,35 @@ def encode_basic_text_to_cac3_bin(basic_text: str, save_filename: str = "") -> b
         body_bytes.extend(stmt_bytes)
 
     body_bytes.append(0xFF)  # 程序结尾符
+    body_bytes.append(0x80)
 
     # 3. 系统变量区 (116 字节)
+
     sys_vars = bytearray(116)
-    sys_vars[0x00:0x02] = (0x407D).to_bytes(2, byteorder='little')  # D_FILE
-    sys_vars[0x02:0x04] = (0x4396).to_bytes(2, byteorder='little')  # PROG
-    sys_vars[0x04:0x06] = (0x407E).to_bytes(2, byteorder='little')  # DF_CC
+    struct_vars = CAC3SysVariables.from_buffer(sys_vars)
 
-    vars_addr = 0x4396 + len(body_bytes)
-    sys_vars[0x06:0x08] = vars_addr.to_bytes(2, byteorder='little')  # VARS
+    # sys_vars[0x00] = 0xFF  # BASIC FILE FLAG
+    # sys_vars[0x01:0x03] = (0x407D).to_bytes(2, byteorder='little')  # D_FILE
+    # sys_vars[0x03:0x05] = (0x4396).to_bytes(2, byteorder='little')  # PROG
+    # sys_vars[0x05:0x07] = (0x407E).to_bytes(2, byteorder='little')  # DF_CC
+    #
+    # vars_addr = 0x4396 + len(body_bytes)
+    # sys_vars[0x06:0x08] = vars_addr.to_bytes(2, byteorder='little')  # VARS
+    #
+    # sys_vars[0x52] = 0x76
+    # sys_vars[0x73] = 0x76
 
-    sys_vars[0x52] = 0x76
-    sys_vars[0x73] = 0x76
+    struct_vars.VERSN = 0xFF
+    struct_vars.NXTLIN = 0x407D
+    struct_vars.PROGRAM = 0x4396
+    struct_vars.NXTLIN1 = 0x407E
+    struct_vars.VARS = 0x4396 + len(body_bytes) -1 # vars_addr.to_bytes(2, byteorder='little')
+    struct_vars.DEST = 0x0000
+    struct_vars.E_LINE = struct_vars.VARS + 1
+
+    struct_vars.PRBUFF.raw = b'\x00' * 32 + b'\x76'
+    struct_vars.MEMBOT.raw =  b'\x00' * 30
+    struct_vars.BLINK = 0x0000
 
     # 4. 视频缓冲区 (793 字节)
     vbuf_bytes = bytearray()
@@ -147,7 +278,6 @@ def encode_basic_text_to_cac3_bin(basic_text: str, save_filename: str = "") -> b
         vbuf_bytes.append(0x76)
 
     return bytes(header_bytes + sys_vars + vbuf_bytes + body_bytes)
-
 
 # ==========================================
 # 2. WAV 音频生成模块

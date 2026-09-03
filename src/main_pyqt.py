@@ -283,7 +283,9 @@ class BasicToBinFrame(QWidget):
             "60 LET PX=2\n"
             "65 LET PY=2\n"
             '70 PRINT AT PY,PX; "*"\n'
-            "80 STOP"
+            "90 A=10\n"
+            "100 FOR I=1 TO 10\n"
+            "110 NEXT I\n"
         )
         self.txt_editor.setText(sample_code)
         
@@ -688,7 +690,8 @@ class HexViewerPanel(QFrame):
                     base_offset = 0
                 
                 total_offset = base_offset + relative_offset
-                self.status_label.setText(f"相对偏移: 0x{relative_offset:X} | 字节内容: 0x{byte_value} ({int(byte_value, 16)})")
+                self.status_label.setText(f"相对偏移: 0x{relative_offset:X} ({relative_offset})" +
+                                          f" | 字节内容: 0x{byte_value} ({int(byte_value, 16)})")
             else:
                 self.status_label.setText("相对偏移: -- | 字节内容: --")
         except Exception as e:
