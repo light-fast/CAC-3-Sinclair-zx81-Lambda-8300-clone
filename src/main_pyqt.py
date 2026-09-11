@@ -8,11 +8,12 @@ from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QSettings
 from PyQt5.QtGui import QFont, QColor, QPalette, QTextCursor
 
 # 导入底层解码与编码模块
-from basic_decoder import process_cac3_bin
-from basic_encoder import basic_to_wav, encode_basic_text_to_cac3_bin
+from basic_decoder import process_cac3_p
+from basic_encoder import basic_to_wav, encode_basic_text_to_cac3_p
 from hex_viewer_pyqt import format_hex_and_char_bytes
 from z80_disasm import disassemble_z80_bytes
 from z80_flow_disasm import disassemble_z80_flow
+from z80_assembler import assemble_z80_source
 
 # Import PyQt versions of analyzer modules
 from audio_decoder_pyqt import AudioDecoderFrame
@@ -20,7 +21,7 @@ from signal_analyzer_pyqt import SignalAnalyzerFrame
 
 
 # ==========================================
-# 1. BASIC 解码工作区 UI (BIN -> BASIC)
+# 1. BASIC 解码工作区 UI (P -> BASIC)
 # ==========================================
 class BasicDecoderFrame(QWidget):
 
@@ -36,13 +37,13 @@ class BasicDecoderFrame(QWidget):
 
         # File selection frame
         file_layout = QHBoxLayout()
-        file_layout.addWidget(QLabel("选择 BIN 文件: "))
+        file_layout.addWidget(QLabel("选择 P 文件: "))
         
         self.file_path_var = QLineEdit()
         self.file_path_var.setReadOnly(True)
         file_layout.addWidget(self.file_path_var, 1)
         
-        self.btn_browse = QPushButton("载入 BIN 文件")
+        self.btn_browse = QPushButton("载入 P 文件")
         self.btn_browse.clicked.connect(self.load_and_decode)
         file_layout.addWidget(self.btn_browse)
         
@@ -112,8 +113,8 @@ class BasicDecoderFrame(QWidget):
     def load_and_decode(self):
         last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
         fn, _ = QFileDialog.getOpenFileName(
-            self, "选择 CAC-3 BIN 文件", last_dir, 
-            "Binary Files (*.bin);;All Files (*.*)"
+            self, "选择 CAC-3 P 文件", last_dir, 
+            "P Files (*.p);;All Files (*.*)"
         )
         if not fn:
             return
@@ -127,7 +128,7 @@ class BasicDecoderFrame(QWidget):
             sys_bytes_dump,
             screen_matrix,
             basic_code_lines,
-        ) = process_cac3_bin(fn, format_hex_and_char_bytes)
+        ) = process_cac3_p(fn, format_hex_and_char_bytes)
 
         self.lbl_filename.setText(f'"{parsed_name}"')
         self.lbl_sys_info.setText(sys_info if sys_info else "解析失败")
@@ -233,7 +234,7 @@ class CrtWindow(QWidget):
 
 
 # ==========================================
-# 2. 独立模块：BASIC 源码 转 BIN 文件 (BASIC -> BIN)
+# 2. 独立模块：BASIC 源码 转 P 文件 (BASIC -> P)
 # ==========================================
 class BasicToBinFrame(QWidget):
 
@@ -248,7 +249,7 @@ class BasicToBinFrame(QWidget):
         layout.setSpacing(5)
 
         # Configuration frame
-        cfg_group = QGroupBox(" BIN 导出参数 ")
+        cfg_group = QGroupBox(" P 导出参数 ")
         cfg_layout = QHBoxLayout()
         
         cfg_layout.addWidget(QLabel("SAVE 文件名:"))
@@ -259,7 +260,7 @@ class BasicToBinFrame(QWidget):
         
         cfg_layout.addStretch()
         
-        self.btn_convert = QPushButton("⚡ 生成并导出 BIN 文件")
+        self.btn_convert = QPushButton("⚡ 生成并导出 P 文件")
         self.btn_convert.clicked.connect(self.convert_to_bin)
         cfg_layout.addWidget(self.btn_convert)
         
@@ -303,8 +304,8 @@ class BasicToBinFrame(QWidget):
 
         last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
         fn, _ = QFileDialog.getSaveFileName(
-            self, "保存 CAC-3 BIN 文件", os.path.join(last_dir, f"{save_name.lower()}.bin"),
-            "Binary Files (*.bin);;All Files (*.*)"
+            self, "保存 CAC-3 P 文件", os.path.join(last_dir, f"{save_name.lower()}.p"),
+            "P Files (*.p);;All Files (*.*)"
         )
         if not fn:
             return
@@ -313,20 +314,20 @@ class BasicToBinFrame(QWidget):
             self.root_app.save_last_directory(fn)
 
         try:
-            bin_data = encode_basic_text_to_cac3_bin(basic_text, save_filename=save_name)
+            p_data = encode_basic_text_to_cac3_p(basic_text, save_filename=save_name)
             with open(fn, "wb") as f:
-                f.write(bin_data)
+                f.write(p_data)
 
             QMessageBox.information(
                 self, "导出成功",
-                f"✓ BIN 文件生成完成！\n路径: {fn}\n大小: {len(bin_data):,} 字节"
+                f"✓ P 文件生成完成！\n路径: {fn}\n大小: {len(p_data):,} 字节"
             )
         except Exception as e:
             QMessageBox.critical(self, "导出失败", f"错误详情:\n{str(e)}")
 
 
 # ==========================================
-# 3. 独立模块：BIN 文件 转 WAV 音频 (BIN -> WAV)
+# 3. 独立模块：P 文件 转 WAV 音频 (P -> WAV)
 # ==========================================
 class BinToWavFrame(QWidget):
 
@@ -341,24 +342,26 @@ class BinToWavFrame(QWidget):
         layout.setSpacing(5)
 
         # Input file group
-        input_group = QGroupBox(" 输入 BIN 文件 ")
+        input_group = QGroupBox(" 输入 P 文件 ")
+        input_group.setFixedHeight(80)
         input_layout = QHBoxLayout()
         
-        input_layout.addWidget(QLabel("选择 BIN 文件: "))
+        input_layout.addWidget(QLabel("选择 P 文件: "))
         
-        self.var_bin_path = QLineEdit()
-        self.var_bin_path.setReadOnly(True)
-        input_layout.addWidget(self.var_bin_path, 1)
+        self.var_p_path = QLineEdit()
+        self.var_p_path.setReadOnly(True)
+        input_layout.addWidget(self.var_p_path, 1)
         
-        self.btn_browse_bin = QPushButton("浏览...")
-        self.btn_browse_bin.clicked.connect(self.browse_bin_file)
-        input_layout.addWidget(self.btn_browse_bin)
+        self.btn_browse_p = QPushButton("浏览...")
+        self.btn_browse_p.clicked.connect(self.browse_p_file)
+        input_layout.addWidget(self.btn_browse_p)
         
         input_group.setLayout(input_layout)
         layout.addWidget(input_group)
 
         # Parameters group
         param_group = QGroupBox(" WAV 音频调制参数 ")
+        param_group.setFixedHeight(60)
         param_layout = QHBoxLayout()
         
         param_layout.addWidget(QLabel("采样率:"))
@@ -375,28 +378,25 @@ class BinToWavFrame(QWidget):
         param_layout.addStretch()
         param_group.setLayout(param_layout)
         layout.addWidget(param_group)
+        layout.addStretch()
 
-        # Convert button
-        self.btn_convert_wav = QPushButton("🎵 开始转换并保存 WAV 音频")
-        self.btn_convert_wav.clicked.connect(self.convert_bin_to_wav)
-        self.btn_convert_wav.setStyleSheet("padding: 10px;")
-        layout.addWidget(self.btn_convert_wav)
-
-    def browse_bin_file(self):
+    def browse_p_file(self):
         last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
         fn, _ = QFileDialog.getOpenFileName(
-            self, "选择 BIN 二进制文件", last_dir,
-            "Binary Files (*.bin);;All Files (*.*)"
+            self, "选择 P 二进制文件", last_dir,
+            "P Files (*.p);;All Files (*.*)"
         )
         if fn:
-            self.var_bin_path.setText(fn)
+            self.var_p_path.setText(fn)
             if self.root_app:
                 self.root_app.save_last_directory(fn)
+            
+            # Automatically convert to wav
+            self.convert_p_to_wav(fn)
 
-    def convert_bin_to_wav(self):
-        bin_path = self.var_bin_path.text().strip()
-        if not bin_path or not os.path.exists(bin_path):
-            QMessageBox.warning(self, "警告", "请选择有效的 BIN 文件！")
+    def convert_p_to_wav(self, p_path):
+        if not p_path or not os.path.exists(p_path):
+            QMessageBox.warning(self, "警告", "请选择有效的 P 文件！")
             return
 
         try:
@@ -406,39 +406,30 @@ class BinToWavFrame(QWidget):
             QMessageBox.critical(self, "参数错误", "采样率和载波频率必须是有效的数字！")
             return
 
-        default_wav_name = os.path.splitext(os.path.basename(bin_path))[0] + ".wav"
-        last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
-        fn_wav, _ = QFileDialog.getSaveFileName(
-            self, "保存 CAC-3 WAV 音频文件", os.path.join(last_dir, default_wav_name),
-            "WAV Audio Files (*.wav);;All Files (*.*)"
-        )
-        if not fn_wav:
-            return
-        
-        if self.root_app:
-            self.root_app.save_last_directory(fn_wav)
+        # Automatically generate wav filename from p filename
+        wav_path = os.path.splitext(p_path)[0] + ".wav"
 
         try:
-            with open(bin_path, "rb") as f:
-                bin_data = f.read()
+            with open(p_path, "rb") as f:
+                p_data = f.read()
 
             from basic_encoder import generate_audio_from_bytes, wavfile
 
-            audio = generate_audio_from_bytes(bin_data, sample_rate=sr, carrier_freq=cf)
+            audio = generate_audio_from_bytes(p_data, sample_rate=sr, carrier_freq=cf)
             audio_int16 = (audio * 32767).astype("int16")
-            wavfile.write(fn_wav, sr, audio_int16)
+            wavfile.write(wav_path, sr, audio_int16)
 
             duration = len(audio) / sr
             QMessageBox.information(
                 self, "转换成功",
-                f"✓ WAV 磁带音频合成完成！\n路径: {fn_wav}\n时长: {duration:.2f} 秒\n采样率: {sr} Hz"
+                f"✓ WAV 磁带音频合成完成！\n路径: {wav_path}\n时长: {duration:.2f} 秒\n采样率: {sr} Hz"
             )
         except Exception as e:
             QMessageBox.critical(self, "生成 WAV 失败", f"错误详情:\n{str(e)}")
 
 
 # ==========================================
-# 4. ROM/BIN 文件浏览器 UI (同屏分屏主控)
+# 4. 二进制文件浏览 UI (同屏分屏主控)
 # ==========================================
 class HexViewerPanel(QFrame):
     def __init__(self, file_path, parent=None, parent_frame=None):
@@ -753,7 +744,7 @@ class HexViewerFrame(QWidget):
         # Top frame
         top_layout = QHBoxLayout()
         
-        self.btn_add = QPushButton("➕ 载入并并排比对 ROM/BIN 文件")
+        self.btn_add = QPushButton("➕ 载入并并排比对 二进制文件")
         self.btn_add.clicked.connect(self.add_new_file)
         top_layout.addWidget(self.btn_add)
         
@@ -780,8 +771,8 @@ class HexViewerFrame(QWidget):
     def add_new_file(self):
         last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
         fn, _ = QFileDialog.getOpenFileName(
-            self, "选择 ROM/BIN 文件", last_dir,
-            "ROM & BIN Files (*.rom *.bin);;All Files (*.*)"
+            self, "选择 二进制文件", last_dir,
+            "All Files (*.*)"
         )
         if not fn:
             return
@@ -915,7 +906,187 @@ class HexViewerFrame(QWidget):
 
 
 # ==========================================
-# 5. ROM 反汇编器 UI
+# 5. P 文件浏览器 UI (左右分屏显示二进制内容和解码内容)
+# ==========================================
+class PViewerFrame(QWidget):
+
+    def __init__(self, parent=None, root_app=None):
+        super().__init__(parent)
+        self.root_app = root_app
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(0)
+
+        # 顶部控制区
+        top_frame = QFrame()
+        top_frame.setFixedHeight(40)
+        top_layout = QHBoxLayout(top_frame)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+
+        top_layout.addWidget(QLabel("选择 P 文件: "))
+        
+        self.file_path_var = QLineEdit()
+        self.file_path_var.setReadOnly(True)
+        top_layout.addWidget(self.file_path_var, 1)
+        
+        self.btn_browse = QPushButton("浏览...")
+        self.btn_browse.clicked.connect(self.load_file)
+        top_layout.addWidget(self.btn_browse)
+        
+        layout.addWidget(top_frame)
+
+        # 分屏显示区
+        splitter = QSplitter(Qt.Horizontal)
+        
+        # 左侧：二进制内容
+        left_group = QGroupBox(" 二进制内容 (十六进制与字符) ")
+        left_layout = QVBoxLayout(left_group)
+        left_layout.setContentsMargins(2, 2, 2, 2)
+
+        self.txt_hex_display = QTextEdit()
+        self.txt_hex_display.setReadOnly(True)
+        self.txt_hex_display.setFont(QFont("Consolas", 10))
+        self.txt_hex_display.setStyleSheet("background-color: #1E1E1E; color: #FFD700;")
+        left_layout.addWidget(self.txt_hex_display)
+        
+        splitter.addWidget(left_group)
+
+        # 右侧：解码内容
+        right_group = QGroupBox(" 解码内容 ")
+        right_layout = QVBoxLayout(right_group)
+        right_layout.setContentsMargins(2, 2, 2, 2)
+
+        self.txt_decoded_display = QTextEdit()
+        self.txt_decoded_display.setReadOnly(True)
+        self.txt_decoded_display.setFont(QFont("Consolas", 10, QFont.Bold))
+        self.txt_decoded_display.setStyleSheet("background-color: #121212; color: #00E5FF;")
+        right_layout.addWidget(self.txt_decoded_display)
+        
+        splitter.addWidget(right_group)
+        
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        
+        layout.addWidget(splitter)
+
+        # 底部信息区
+        info_frame = QFrame()
+        info_frame.setFixedHeight(40)
+        info_layout = QHBoxLayout(info_frame)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.lbl_info = QLabel("准备就绪。请选择 .p 文件进行查看。")
+        info_layout.addWidget(self.lbl_info)
+        
+        self.lbl_file_type = QLabel("")
+        info_layout.addWidget(self.lbl_file_type)
+        
+        layout.addWidget(info_frame)
+
+    def detect_file_type(self, data):
+        """根据文件头检测文件类型"""
+        if len(data) < 9:
+            return "unknown", "未知文件类型"
+        
+        # 检查是否为 Z80 机器码文件 (wToVP)
+        # wToVP 文件通常包含 ROM 头部特征: ED 54 6F D6 50
+        if data[:5] == bytes.fromhex("ED546FD650"):
+            return "z80", "Z80 机器码 (wToVP)"
+        
+        # 检查 BASIC 文件特征
+        # BASIC 文件通常以可打印字符开始（文件名）
+        # 尝试解析文件名头
+        filename_bytes = []
+        for i in range(min(128, len(data))):
+            byte = data[i]
+            if byte & 0x80:
+                # 最后一个字符，清除最高位后直接存入整型数
+                filename_bytes.append(byte & 0x7F)
+                break
+            else:
+                # 直接存入整型数
+                filename_bytes.append(byte)
+
+        # 校验范围变更为 0x10 (10H) 到 0x3F (3FH) 之间
+        if filename_bytes and all(0x10 <= b <= 0x3F for b in filename_bytes):
+            return "basic", "BASIC 程序 (basicToP)"
+        
+        return "unknown", "未知文件类型"
+
+    def load_file(self):
+        last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
+        fn, _ = QFileDialog.getOpenFileName(
+            self, "选择 P 文件", last_dir,
+            "P Files (*.p);;All Files (*.*)"
+        )
+        if not fn:
+            return
+        self.file_path_var.setText(fn)
+        if self.root_app:
+            self.root_app.save_last_directory(fn)
+
+        try:
+            with open(fn, "rb") as f:
+                data = f.read()
+
+            # 显示二进制内容
+            formatted_dump = format_hex_and_char_bytes(data, base_address=0)
+            self.txt_hex_display.setText(formatted_dump if formatted_dump else "--- 文件内容为空 ---")
+
+            # 检测文件类型并解码
+            file_type, type_name = self.detect_file_type(data)
+            self.lbl_file_type.setText(f"文件类型: {type_name}")
+
+            decoded_text = ""
+            if file_type == "basic":
+                # BASIC 解码
+                try:
+                    parsed_name, sys_info, sys_bytes_dump, screen_matrix, basic_code_lines = \
+                        process_cac3_p(fn, format_hex_and_char_bytes)
+                    
+                    decoded_text = f"=== BASIC 程序解码结果 ===\n\n"
+                    decoded_text += f"文件名: {parsed_name}\n"
+                    decoded_text += f"系统信息: {sys_info}\n\n"
+                    decoded_text += f"=== BASIC 源码 ===\n"
+                    decoded_text += "\n".join(basic_code_lines)
+                except Exception as e:
+                    decoded_text = f"BASIC 解码失败: {str(e)}"
+            
+            elif file_type == "z80":
+                # Z80 反汇编
+                try:
+                    # 跳过 ROM 头部，从实际代码开始
+                    # ROM 头部格式: ED 54 6F D6 50 + 2字节地址 + 2字节长度
+                    if len(data) >= 9:
+                        start_addr = int.from_bytes(data[5:7], byteorder='big')
+                        data_len = int.from_bytes(data[7:9], byteorder='big')
+                        code_data = data[9:9+data_len]
+                        decoded_text = disassemble_z80_bytes(code_data, base_addr=start_addr)
+                    else:
+                        decoded_text = disassemble_z80_bytes(data, base_addr=0x0000)
+                except Exception as e:
+                    decoded_text = f"Z80 反汇编失败: {str(e)}"
+            
+            else:
+                decoded_text = "无法识别的文件类型，无法解码。"
+
+            # 显示解码内容
+            self.txt_decoded_display.setText(decoded_text)
+
+            self.lbl_info.setText(
+                f"文件: {os.path.basename(fn)} | 大小: {len(data)} 字节"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "读取错误", f"无法读取或处理文件:\n{str(e)}")
+            self.lbl_info.setText("读取失败。")
+
+
+# ==========================================
+# 6. ROM 反汇编器 UI
 # ==========================================
 class DisassemblerFrame(QWidget):
 
@@ -1098,7 +1269,263 @@ class DisassemblerFrame(QWidget):
 
 
 # ==========================================
-# 6. 主应用程序入口与菜单控制
+# 6. Z80 汇编器 UI
+# ==========================================
+class Z80AssemblerFrame(QWidget):
+
+    def __init__(self, parent=None, root_app=None):
+        super().__init__(parent)
+        self.root_app = root_app
+        self.current_file_path = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
+
+        # File operations frame
+        file_group = QGroupBox(" 文件操作 ")
+        file_layout = QHBoxLayout()
+        
+        self.btn_new = QPushButton("📄 新建")
+        self.btn_new.clicked.connect(self.new_file)
+        file_layout.addWidget(self.btn_new)
+        
+        self.btn_open = QPushButton("📂 打开 ASM 文件")
+        self.btn_open.clicked.connect(self.open_file)
+        file_layout.addWidget(self.btn_open)
+        
+        self.btn_save = QPushButton("💾 保存")
+        self.btn_save.clicked.connect(self.save_file)
+        file_layout.addWidget(self.btn_save)
+        
+        self.btn_save_as = QPushButton("💾 另存为")
+        self.btn_save_as.clicked.connect(self.save_file_as)
+        file_layout.addWidget(self.btn_save_as)
+        
+        file_layout.addStretch()
+        
+        self.lbl_file_path = QLabel("未打开文件")
+        self.lbl_file_path.setFont(QFont("Consolas", 9))
+        self.lbl_file_path.setStyleSheet("color: #888888;")
+        file_layout.addWidget(self.lbl_file_path)
+        
+        file_group.setLayout(file_layout)
+        layout.addWidget(file_group)
+
+        # Assembly configuration frame
+        config_group = QGroupBox(" 汇编参数 ")
+        config_layout = QHBoxLayout()
+        
+        config_layout.addWidget(QLabel("起始地址 (ORG): $"))
+        self.var_org_addr = QLineEdit("0000")
+        self.var_org_addr.setFixedWidth(80)
+        config_layout.addWidget(self.var_org_addr)
+        
+        config_layout.addStretch()
+        
+        self.btn_assemble = QPushButton("⚡ 汇编生成 OBJ 文件")
+        self.btn_assemble.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        self.btn_assemble.clicked.connect(self.assemble_code)
+        config_layout.addWidget(self.btn_assemble)
+        
+        config_group.setLayout(config_layout)
+        layout.addWidget(config_group)
+
+        # Splitter for editor and output
+        splitter = QSplitter(Qt.Vertical)
+        
+        # Source code editor
+        editor_group = QGroupBox(" 📝 Z80 汇编源码编辑器 ")
+        editor_layout = QVBoxLayout()
+        
+        self.txt_editor = QTextEdit()
+        self.txt_editor.setFont(QFont("Consolas", 11))
+        self.txt_editor.setStyleSheet("background-color: #1E1E1E; color: #FFD700;")
+        
+        sample_code = (
+            "; Z80 Assembly Sample Program\n"
+            "        ORG $0000\n"
+            "\n"
+            "        LD A, $55\n"
+            "        LD B, $AA\n"
+            "        ADD A, B\n"
+            "        LD C, A\n"
+            "        NOP\n"
+            "        JP $0000\n"
+        )
+        self.txt_editor.setText(sample_code)
+        
+        editor_layout.addWidget(self.txt_editor)
+        editor_group.setLayout(editor_layout)
+        splitter.addWidget(editor_group)
+
+        # Assembly output
+        output_group = QGroupBox(" 🔧 汇编输出与错误信息 ")
+        output_layout = QVBoxLayout()
+        
+        self.txt_output = QTextEdit()
+        self.txt_output.setFont(QFont("Consolas", 10))
+        self.txt_output.setStyleSheet("background-color: #0D0D0D; color: #00FF66;")
+        self.txt_output.setReadOnly(True)
+        self.txt_output.setMaximumHeight(200)
+        output_layout.addWidget(self.txt_output)
+        
+        output_group.setLayout(output_layout)
+        splitter.addWidget(output_group)
+        
+        layout.addWidget(splitter, 1)
+
+    def new_file(self):
+        """Create a new assembly file."""
+        self.txt_editor.clear()
+        self.current_file_path = None
+        self.lbl_file_path.setText("未打开文件")
+        self.txt_output.clear()
+
+    def open_file(self):
+        """Open an ASM source file."""
+        last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
+        fn, _ = QFileDialog.getOpenFileName(
+            self, "打开 Z80 汇编源文件", last_dir,
+            "Assembly Files (*.asm *.z80 *.s);;All Files (*.*)"
+        )
+        if not fn:
+            return
+        
+        if self.root_app:
+            self.root_app.save_last_directory(fn)
+        
+        try:
+            with open(fn, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.txt_editor.setText(content)
+            self.current_file_path = fn
+            self.lbl_file_path.setText(fn)
+            self.txt_output.clear()
+        except Exception as e:
+            QMessageBox.critical(self, "打开失败", f"无法读取文件:\n{str(e)}")
+
+    def save_file(self):
+        """Save the current file."""
+        if self.current_file_path:
+            self._save_to_path(self.current_file_path)
+        else:
+            self.save_file_as()
+
+    def save_file_as(self):
+        """Save the file with a new name."""
+        last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "保存 Z80 汇编源文件", os.path.join(last_dir, "program.asm"),
+            "Assembly Files (*.asm *.z80 *.s);;All Files (*.*)"
+        )
+        if not fn:
+            return
+        
+        if self.root_app:
+            self.root_app.save_last_directory(fn)
+        
+        self._save_to_path(fn)
+
+    def _save_to_path(self, file_path):
+        """Save content to the specified path."""
+        try:
+            content = self.txt_editor.toPlainText()
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self.current_file_path = file_path
+            self.lbl_file_path.setText(file_path)
+            QMessageBox.information(self, "保存成功", f"文件已保存至:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "保存失败", f"无法写入文件:\n{str(e)}")
+
+    def assemble_code(self):
+        """Assemble the source code and generate OBJ file."""
+        source = self.txt_editor.toPlainText().strip()
+        if not source:
+            QMessageBox.warning(self, "警告", "请输入汇编源代码！")
+            return
+        
+        try:
+            org_str = self.var_org_addr.text().strip()
+            org_addr = int(org_str, 16) if org_str else 0x0000
+        except ValueError:
+            QMessageBox.critical(self, "参数错误", "起始地址请输入有效的十六进制数值（例如 0000 或 0200）")
+            return
+        
+        try:
+            # Perform assembly
+            machine_code, errors, warnings = assemble_z80_source(source, org_addr)
+            
+            # Display output
+            output_lines = []
+            output_lines.append(f"=== 汇编结果 ===")
+            output_lines.append(f"起始地址: ${org_addr:04X}")
+            output_lines.append(f"生成字节数: {len(machine_code)}")
+            
+            if errors:
+                output_lines.append(f"\n错误 ({len(errors)}):")
+                for error in errors:
+                    output_lines.append(f"  - {error}")
+            
+            if warnings:
+                output_lines.append(f"\n警告 ({len(warnings)}):")
+                for warning in warnings:
+                    output_lines.append(f"  - {warning}")
+            
+            if machine_code:
+                output_lines.append(f"\n机器码 (HEX):")
+                hex_str = ' '.join(f'{b:02X}' for b in machine_code)
+                output_lines.append(f"  {hex_str}")
+            
+            self.txt_output.setText('\n'.join(output_lines))
+            
+            if errors:
+                QMessageBox.warning(self, "汇编完成但有错误", f"汇编完成，但有 {len(errors)} 个错误。请查看输出信息。")
+            else:
+                # Save OBJ file
+                self._save_obj_file(machine_code, org_addr)
+        except Exception as e:
+            QMessageBox.critical(self, "汇编失败", f"汇编过程中发生错误:\n{str(e)}")
+            self.txt_output.setText(f"汇编失败:\n{str(e)}")
+
+    def _save_obj_file(self, machine_code, org_addr):
+        """Save the machine code as an OBJ file."""
+        last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
+        
+        # Generate default filename
+        if self.current_file_path:
+            base_name = os.path.splitext(os.path.basename(self.current_file_path))[0]
+        else:
+            base_name = "program"
+        
+        default_name = f"{base_name}.obj"
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "保存 OBJ 文件", os.path.join(last_dir, default_name),
+            "Object Files (*.obj *.bin);;All Files (*.*)"
+        )
+        if not fn:
+            return
+        
+        if self.root_app:
+            self.root_app.save_last_directory(fn)
+        
+        try:
+            with open(fn, "wb") as f:
+                f.write(machine_code)
+            
+            QMessageBox.information(
+                self, "汇编成功",
+                f"✓ OBJ 文件生成完成！\n路径: {fn}\n大小: {len(machine_code)} 字节\n起始地址: ${org_addr:04X}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "保存失败", f"无法写入 OBJ 文件:\n{str(e)}")
+
+
+# ==========================================
+# 7. 主应用程序入口与菜单控制
 # ==========================================
 class MainApplication(QMainWindow):
 
@@ -1144,12 +1571,14 @@ class MainApplication(QMainWindow):
         file_menu.addAction("退出程序", self.close)
 
         tools_menu = menubar.addMenu("工具 (Tools)")
-        tools_menu.addAction("BASIC 解码 (BIN -> 源码)", self.load_basic_decoder_module)
-        tools_menu.addAction("BASIC 编码 (BASIC -> BIN)", self.load_basic_to_bin_module)
-        tools_menu.addAction("BIN 转 WAV 音频 (BIN -> WAV)", self.load_bin_to_wav_module)
+        tools_menu.addAction("BASIC 解码 (P -> 源码)", self.load_basic_decoder_module)
+        tools_menu.addAction("BASIC 编码 (BASIC -> P)", self.load_basic_to_bin_module)
+        tools_menu.addAction("P 转 WAV 音频 (P -> WAV)", self.load_bin_to_wav_module)
         tools_menu.addSeparator()
-        tools_menu.addAction("ROM/BIN 文件浏览器", self.load_hex_viewer_module)
+        tools_menu.addAction("二进制文件浏览", self.load_hex_viewer_module)
+        tools_menu.addAction("P 文件浏览", self.load_p_viewer_module)
         tools_menu.addAction("ROM 反汇编 (Z80)", self.load_disassembler_module)
+        tools_menu.addAction("Z80 汇编器 (ASM -> OBJ)", self.load_z80_assembler_module)
         tools_menu.addSeparator()
         tools_menu.addAction("🌊 音频信号分析与解调-1", self.load_signal_analyzer_module)
         tools_menu.addAction("🎵 音频信号分析与解调-2", self.load_audio_decoder_module)
@@ -1196,11 +1625,13 @@ class MainApplication(QMainWindow):
         
         # Function buttons
         buttons_spec = [
-            ("📜 BASIC 解码 (BIN -> 源码)", self.load_basic_decoder_module),
-            ("⚡ BASIC 编码 (BASIC -> BIN)", self.load_basic_to_bin_module),
-            ("🎵 BIN 转 WAV (BIN -> WAV)", self.load_bin_to_wav_module),
-            ("🔍 ROM / BIN 文件浏览器", self.load_hex_viewer_module),
+            ("📜 BASIC 解码 (P -> 源码)", self.load_basic_decoder_module),
+            ("⚡ BASIC 编码 (BASIC -> P)", self.load_basic_to_bin_module),
+            ("🎵 P 转 WAV (P -> WAV)", self.load_bin_to_wav_module),
+            ("🔍 二进制文件浏览", self.load_hex_viewer_module),
+            ("📄 P 文件浏览", self.load_p_viewer_module),
             ("⚙️ ROM 反汇编器 (Z80)", self.load_disassembler_module),
+            ("🔧 Z80 汇编器 (ASM -> OBJ)", self.load_z80_assembler_module),
             ("🌊 音频信号分析与解调-1", self.load_signal_analyzer_module),
             ("🎵 音频信号分析与解调-2", self.load_audio_decoder_module),
         ]
@@ -1230,8 +1661,14 @@ class MainApplication(QMainWindow):
     def load_hex_viewer_module(self):
         self.switch_widget(HexViewerFrame)
 
+    def load_p_viewer_module(self):
+        self.switch_widget(PViewerFrame)
+
     def load_disassembler_module(self):
         self.switch_widget(DisassemblerFrame)
+
+    def load_z80_assembler_module(self):
+        self.switch_widget(Z80AssemblerFrame)
 
     def load_signal_analyzer_module(self):
         self.switch_widget(SignalAnalyzerFrame)

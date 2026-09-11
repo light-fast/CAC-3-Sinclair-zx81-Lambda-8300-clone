@@ -40,8 +40,8 @@ def disassemble_z80_bytes(data, base_addr=0x0000, output_file=None):
 
     # 文件头（地址已是大写）
     lines.append(f"; Z80 DISASSEMBLY")
-    lines.append(f"; START ADDRESS: {base_addr:04X}")
-    lines.append(f"; TOTAL BYTES: {total}")
+    lines.append(f"; START ADDRESS:{base_addr} ({base_addr:04X}H)")
+    lines.append(f"; TOTAL BYTES: {total} ({total:04X}H)")
     lines.append("")
 
     while offset < total:

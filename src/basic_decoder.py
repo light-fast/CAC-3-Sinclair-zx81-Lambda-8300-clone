@@ -143,8 +143,8 @@ def parse_basic_program(data, start_idx):
     return basic_lines
 
 
-def process_cac3_bin(file_path, hex_formatter_func):
-    """解析 BIN 文件的主入口（传入 16进制格式化函数）"""
+def process_cac3_p(file_path, hex_formatter_func):
+    """解析 P 文件的主入口（传入 16进制格式化函数）"""
     try:
         with open(file_path, "rb") as f:
             data = f.read()

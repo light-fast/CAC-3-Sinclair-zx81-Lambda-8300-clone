@@ -200,8 +200,8 @@ def encode_basic_statement(code_str: str) -> bytearray:
     return stmt_bytes
 
 
-def encode_basic_text_to_cac3_bin(basic_text: str, save_filename: str = "") -> bytes:
-    """构造完整的 CAC-3 二进制 BIN 镜像"""
+def encode_basic_text_to_cac3_p(basic_text: str, save_filename: str = "") -> bytes:
+    """构造完整的 CAC-3 二进制 P 镜像"""
     # 1. 文件名头
     header_bytes = bytearray()
     clean_name = save_filename.upper().strip() if save_filename else "UNNAMED"

@@ -227,8 +227,8 @@ class AudioDecoderFrame(QWidget):
         self.btn_reset.clicked.connect(self.reset)
         btn_layout.addWidget(self.btn_reset)
         
-        self.btn_save = QPushButton("保存为 BIN 文件")
-        self.btn_save.clicked.connect(self.save_bin)
+        self.btn_save = QPushButton("保存为 P 文件")
+        self.btn_save.clicked.connect(self.save_p)
         btn_layout.addWidget(self.btn_save)
         
         self.btn_export = QPushButton("生成 ROM 文件")
@@ -775,9 +775,9 @@ class AudioDecoderFrame(QWidget):
         self.plot_histogram()
 
     # ---------- 格式转换辅助 ----------
-    def _auto_export_rom(self, bin_file, show_message=True):
+    def _auto_export_rom(self, p_file, show_message=True):
         try:
-            with open(bin_file, "rb") as f:
+            with open(p_file, "rb") as f:
                 data = f.read()
         except Exception as e:
             msg = f"无法读取文件：{e}"
@@ -808,7 +808,7 @@ class AudioDecoderFrame(QWidget):
             return False, msg
 
         raw_data = data[9 : 9 + data_len]
-        base, _ = os.path.splitext(bin_file)
+        base, _ = os.path.splitext(p_file)
         rom_file = base + ".rom"
         try:
             with open(rom_file, "wb") as f:
@@ -858,7 +858,7 @@ class AudioDecoderFrame(QWidget):
         self.update_all_and_plot()
         self.update_histogram()
 
-    def save_bin(self):
+    def save_p(self):
         if self.raw is None:
             QMessageBox.warning(self, "提示", "请先加载 WAV 音频文件！")
             return
@@ -898,7 +898,7 @@ class AudioDecoderFrame(QWidget):
             byte_list.append(byte)
 
         out_file, _ = QFileDialog.getSaveFileName(
-            self, "保存解码结果为 BIN 文件", "", "Binary files (*.bin);;All files (*.*)"
+            self, "保存解码结果为 P 文件", "", "P files (*.p);;All files (*.*)"
         )
         if out_file:
             with open(out_file, "wb") as f:
@@ -916,11 +916,11 @@ class AudioDecoderFrame(QWidget):
             QMessageBox.information(self, "保存及 ROM 转换处理完成", main_msg)
 
     def export_rom(self):
-        bin_file, _ = QFileDialog.getOpenFileName(
-            self, "选择 BIN 文件转换为 ROM", "", "BIN files (*.bin);;All files (*.*)"
+        p_file, _ = QFileDialog.getOpenFileName(
+            self, "选择 P 文件转换为 ROM", "", "P files (*.p);;All files (*.*)"
         )
-        if bin_file:
-            self._auto_export_rom(bin_file, show_message=True)
+        if p_file:
+            self._auto_export_rom(p_file, show_message=True)
 
 
 # 支持单文件独立运行测试

@@ -190,9 +190,9 @@ class SignalAnalyzerFrame(QWidget):
         right_layout.addSpacing(15)
 
         right_layout.addWidget(QLabel("全自动解码与固件提取："))
-        self.btn_export = QPushButton("🚀 全文件解码并导出 .bin")
+        self.btn_export = QPushButton("🚀 全文件解码并导出 .p")
         self.btn_export.setEnabled(False)
-        self.btn_export.clicked.connect(self.export_bin)
+        self.btn_export.clicked.connect(self.export_p)
         self.btn_export.setStyleSheet("padding: 10px;")
         right_layout.addWidget(self.btn_export)
         right_layout.addStretch()
@@ -365,11 +365,11 @@ class SignalAnalyzerFrame(QWidget):
         self.lbl_status.setText(f"全局分析成功！共抽取 {len(self.all_file_integrals)} 个有效积分样本点。")
         self.update_plot()
 
-    def export_bin(self):
+    def export_p(self):
         if self.audio_data is None:
             return
 
-        save_path, _ = QFileDialog.getSaveFileName(self, "保存 BIN 文件", "", "Binary files (*.bin)")
+        save_path, _ = QFileDialog.getSaveFileName(self, "保存 P 文件", "", "P files (*.p)")
         if not save_path:
             return
 
@@ -418,7 +418,7 @@ class SignalAnalyzerFrame(QWidget):
             with open(save_path, "wb") as f:
                 f.write(bytes(byte_chunks))
 
-            self.lbl_status.setText("固件 BIN 数据写出成功。")
+            self.lbl_status.setText("固件 P 数据写出成功。")
 
             reply = QMessageBox.question(
                 self, "导出成功",
@@ -426,15 +426,15 @@ class SignalAnalyzerFrame(QWidget):
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
-                self.parse_bin_to_rom(save_path)
+                self.parse_p_to_rom(save_path)
 
         except Exception as e:
             self.lbl_status.setText("文件磁盘写入故障。")
             QMessageBox.critical(self, "写入失败", f"向硬盘写入文件时发生异常错误:\n{str(e)}")
 
-    def parse_bin_to_rom(self, bin_path):
+    def parse_p_to_rom(self, p_path):
         try:
-            with open(bin_path, 'rb') as f:
+            with open(p_path, 'rb') as f:
                 raw_bytes = f.read()
 
             target_header = bytes.fromhex("ED546FD650")
@@ -480,7 +480,7 @@ class SignalAnalyzerFrame(QWidget):
             pure_data = raw_bytes[data_start_idx:data_end_idx]
             checksum_byte = raw_bytes[data_end_idx]
 
-            default_rom_name = os.path.splitext(os.path.basename(bin_path))[0] + ".rom"
+            default_rom_name = os.path.splitext(os.path.basename(p_path))[0] + ".rom"
             out_rom_path, _ = QFileDialog.getSaveFileName(
                 self, "选择要保存的纯数据 .rom 文件位置", default_rom_name, "ROM Files (*.rom)"
             )
@@ -494,7 +494,7 @@ class SignalAnalyzerFrame(QWidget):
             QMessageBox.information(
                 self, "ROM 分离成功",
                 f"✅ 协议头全局匹配通过！\n\n"
-                f"📂 原始文件: {os.path.basename(bin_path)}\n"
+                f"📂 原始文件: {os.path.basename(p_path)}\n"
                 f"🔍 自动过滤前导杂波: {preamble_bytes} 字节\n"
                 f"📍 固件映射起始地址: 0x{start_address:04X}\n"
                 f"📦 纯净 ROM 大小: {len(pure_data)} 字节\n"

@@ -4,15 +4,15 @@ from tkinter import filedialog, messagebox, ttk
 
 # 导入底层解码与编码模块
 from audio_decoder import AudioDecoderFrame
-from basic_decoder import process_cac3_bin
-from basic_encoder import basic_to_wav, encode_basic_text_to_cac3_bin
+from basic_decoder import process_cac3_p
+from basic_encoder import basic_to_wav, encode_basic_text_to_cac3_p
 from hex_viewer import format_hex_and_char_bytes
 from signal_analyzer import SignalAnalyzerFrame
 from z80_disasm import disassemble_z80_bytes
 
 
 # ==========================================
-# 1. BASIC 解码工作区 UI (BIN -> BASIC)
+# 1. BASIC 解码工作区 UI (P -> BASIC)
 # ==========================================
 class BasicDecoderFrame(ttk.Frame):
 
@@ -31,7 +31,7 @@ class BasicDecoderFrame(ttk.Frame):
         file_frame.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
         file_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(file_frame, text="选择 BIN 文件: ").grid(
+        ttk.Label(file_frame, text="选择 P 文件: ").grid(
             row=0, column=0, sticky=tk.W
         )
         self.file_path_var = tk.StringVar()
@@ -39,7 +39,7 @@ class BasicDecoderFrame(ttk.Frame):
         self.entry_path.grid(row=0, column=1, sticky=tk.EW, padx=5)
 
         self.btn_browse = ttk.Button(
-            file_frame, text="载入 BIN 文件", command=self.load_and_decode
+            file_frame, text="载入 P 文件", command=self.load_and_decode
         )
         self.btn_browse.grid(row=0, column=2, sticky=tk.E)
 
@@ -141,8 +141,8 @@ class BasicDecoderFrame(ttk.Frame):
 
     def load_and_decode(self):
         fn = filedialog.askopenfilename(
-            title="选择 CAC-3 BIN 文件",
-            filetypes=[("Binary Files", "*.bin"), ("All Files", "*.*")],
+            title="选择 CAC-3 P 文件",
+            filetypes=[("P Files", "*.p"), ("All Files", "*.*")],
         )
         if not fn:
             return
@@ -154,7 +154,7 @@ class BasicDecoderFrame(ttk.Frame):
             sys_bytes_dump,
             screen_matrix,
             basic_code_lines,
-        ) = process_cac3_bin(fn, format_hex_and_char_bytes)
+        ) = process_cac3_p(fn, format_hex_and_char_bytes)
 
         self.lbl_filename.config(text=f'"{parsed_name}"')
         self.lbl_sys_info.config(text=sys_info if sys_info else "解析失败")
@@ -247,7 +247,7 @@ class BasicDecoderFrame(ttk.Frame):
 
 
 # ==========================================
-# 2. 独立模块：BASIC 源码 转 BIN 文件 (BASIC -> BIN)
+# 2. 独立模块：BASIC 源码 转 P 文件 (BASIC -> P)
 # ==========================================
 class BasicToBinFrame(ttk.Frame):
 
@@ -258,7 +258,7 @@ class BasicToBinFrame(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-        cfg_frame = ttk.LabelFrame(self, text=" BIN 导出参数 ", padding="8")
+        cfg_frame = ttk.LabelFrame(self, text=" P 导出参数 ", padding="8")
         cfg_frame.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
 
         ttk.Label(cfg_frame, text="SAVE 文件名:").pack(
@@ -272,8 +272,8 @@ class BasicToBinFrame(ttk.Frame):
 
         self.btn_convert = ttk.Button(
             cfg_frame,
-            text="⚡ 生成并导出 BIN 文件",
-            command=self.convert_to_bin,
+            text="⚡ 生成并导出 P 文件",
+            command=self.convert_to_p,
         )
         self.btn_convert.pack(side=tk.RIGHT, padx=5)
 
@@ -312,7 +312,7 @@ class BasicToBinFrame(ttk.Frame):
         )
         self.txt_editor.insert(tk.END, sample_code)
 
-    def convert_to_bin(self):
+    def convert_to_p(self):
         basic_text = self.txt_editor.get("1.0", tk.END).strip()
         if not basic_text:
             messagebox.showwarning("警告", "请输入 BASIC 代码！")
@@ -321,30 +321,30 @@ class BasicToBinFrame(ttk.Frame):
         save_name = self.var_save_name.get().strip() or "TEST"
 
         try:
-            fn_bin = filedialog.asksaveasfilename(
-                title="保存 CAC-3 BIN 文件",
-                initialfile=f"{save_name.lower()}.bin",
-                filetypes=[("Binary Files", "*.bin"), ("All Files", "*.*")],
+            fn_p = filedialog.asksaveasfilename(
+                title="保存 CAC-3 P 文件",
+                initialfile=f"{save_name.lower()}.p",
+                filetypes=[("P Files", "*.p"), ("All Files", "*.*")],
             )
-            if not fn_bin:
+            if not fn_p:
                 return
 
-            bin_data = encode_basic_text_to_cac3_bin(
+            p_data = encode_basic_text_to_cac3_p(
                 basic_text, save_filename=save_name
             )
-            with open(fn_bin, "wb") as f:
-                f.write(bin_data)
+            with open(fn_p, "wb") as f:
+                f.write(p_data)
 
             messagebox.showinfo(
                 "导出成功",
-                f"✓ BIN 文件生成完成！\n路径: {fn_bin}\n大小: {len(bin_data):,} 字节",
+                f"✓ P 文件生成完成！\n路径: {fn_p}\n大小: {len(p_data):,} 字节",
             )
         except Exception as e:
             messagebox.showerror("导出失败", f"错误详情:\n{str(e)}")
 
 
 # ==========================================
-# 3. 独立模块：BIN 文件 转 WAV 音频 (BIN -> WAV)
+# 3. 独立模块：P 文件 转 WAV 音频 (P -> WAV)
 # ==========================================
 class BinToWavFrame(ttk.Frame):
 
@@ -354,24 +354,24 @@ class BinToWavFrame(ttk.Frame):
 
         self.columnconfigure(0, weight=1)
 
-        # 1. 选择 BIN 输入文件
-        input_group = ttk.LabelFrame(self, text=" 输入 BIN 文件 ", padding="10")
+        # 1. 选择 P 输入文件
+        input_group = ttk.LabelFrame(self, text=" 输入 P 文件 ", padding="10")
         input_group.grid(row=0, column=0, sticky=tk.EW, pady=5)
         input_group.columnconfigure(1, weight=1)
 
-        ttk.Label(input_group, text="选择 BIN 文件: ").grid(
+        ttk.Label(input_group, text="选择 P 文件: ").grid(
             row=0, column=0, sticky=tk.W
         )
-        self.var_bin_path = tk.StringVar()
-        self.entry_bin_path = ttk.Entry(
-            input_group, textvariable=self.var_bin_path
+        self.var_p_path = tk.StringVar()
+        self.entry_p_path = ttk.Entry(
+            input_group, textvariable=self.var_p_path
         )
-        self.entry_bin_path.grid(row=0, column=1, sticky=tk.EW, padx=5)
+        self.entry_p_path.grid(row=0, column=1, sticky=tk.EW, padx=5)
 
-        self.btn_browse_bin = ttk.Button(
-            input_group, text="浏览...", command=self.browse_bin_file
+        self.btn_browse_p = ttk.Button(
+            input_group, text="浏览...", command=self.browse_p_file
         )
-        self.btn_browse_bin.grid(row=0, column=2, sticky=tk.E)
+        self.btn_browse_p.grid(row=0, column=2, sticky=tk.E)
 
         # 2. 采样率与参数设置
         param_group = ttk.LabelFrame(
@@ -405,22 +405,22 @@ class BinToWavFrame(ttk.Frame):
         act_group.grid(row=2, column=0, sticky=tk.EW, pady=10)
 
         self.btn_convert_wav = ttk.Button(
-            act_group, text="🎵 开始转换并保存 WAV 音频", command=self.convert_bin_to_wav
+            act_group, text="🎵 开始转换并保存 WAV 音频", command=self.convert_p_to_wav
         )
         self.btn_convert_wav.pack(fill=tk.X, ipady=5)
 
-    def browse_bin_file(self):
+    def browse_p_file(self):
         fn = filedialog.askopenfilename(
-            title="选择 BIN 二进制文件",
-            filetypes=[("Binary Files", "*.bin"), ("All Files", "*.*")],
+            title="选择 P 二进制文件",
+            filetypes=[("P Files", "*.p"), ("All Files", "*.*")],
         )
         if fn:
-            self.var_bin_path.set(fn)
+            self.var_p_path.set(fn)
 
-    def convert_bin_to_wav(self):
-        bin_path = self.var_bin_path.get().strip()
-        if not bin_path or not os.path.exists(bin_path):
-            messagebox.showwarning("警告", "请选择有效的 BIN 文件！")
+    def convert_p_to_wav(self):
+        p_path = self.var_p_path.get().strip()
+        if not p_path or not os.path.exists(p_path):
+            messagebox.showwarning("警告", "请选择有效的 P 文件！")
             return
 
         try:
@@ -431,7 +431,7 @@ class BinToWavFrame(ttk.Frame):
             return
 
         # 建议 SaveAs 路径
-        default_wav_name = os.path.splitext(os.path.basename(bin_path))[0] + ".wav"
+        default_wav_name = os.path.splitext(os.path.basename(p_path))[0] + ".wav"
         fn_wav = filedialog.asksaveasfilename(
             title="保存 CAC-3 WAV 音频文件",
             initialfile=default_wav_name,
@@ -441,14 +441,14 @@ class BinToWavFrame(ttk.Frame):
             return
 
         try:
-            # 读取 BIN 数据并调用 basic_encoder 里的声音合成方法
-            with open(bin_path, "rb") as f:
-                bin_data = f.read()
+            # 读取 P 数据并调用 basic_encoder 里的声音合成方法
+            with open(p_path, "rb") as f:
+                p_data = f.read()
 
             from basic_encoder import generate_audio_from_bytes, wavfile
 
             audio = generate_audio_from_bytes(
-                bin_data, sample_rate=sr, carrier_freq=cf
+                p_data, sample_rate=sr, carrier_freq=cf
             )
             audio_int16 = (audio * 32767).astype("int16")
             wavfile.write(fn_wav, sr, audio_int16)
@@ -569,7 +569,7 @@ class HexViewerPanel(ttk.Frame):
             messagebox.showerror("读取错误", f"无法读取或处理文件:\n{str(e)}")
 
 # ==========================================
-# 4. ROM/BIN 文件浏览器 UI (同屏分屏主控)
+# 4. 二进制文件浏览 UI (同屏分屏主控)
 # ==========================================
 class HexViewerFrame(ttk.Frame):
 
@@ -584,7 +584,7 @@ class HexViewerFrame(ttk.Frame):
         top_frame = ttk.Frame(self)
         top_frame.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
 
-        self.btn_add = ttk.Button(top_frame, text="➕ 载入并并排比对 ROM/BIN 文件", command=self.add_new_file)
+        self.btn_add = ttk.Button(top_frame, text="➕ 载入并并排比对 二进制文件", command=self.add_new_file)
         self.btn_add.pack(side=tk.LEFT, padx=5)
 
         ttk.Label(top_frame, text="（提示：你可以拖动面板之间的空白处来调整大小）", foreground="gray").pack(side=tk.LEFT,
@@ -596,8 +596,8 @@ class HexViewerFrame(ttk.Frame):
         self.paned_window.grid(row=1, column=0, sticky=tk.NSEW, pady=5)
 
     def add_new_file(self):
-        fn = filedialog.askopenfilename(title="选择 ROM/BIN 文件",
-            filetypes=[("ROM & BIN Files", "*.rom;*.bin"), ("All Files", "*.*"), ], )
+        fn = filedialog.askopenfilename(title="选择 二进制文件",
+            filetypes=[("All Files", "*.*"), ], )
         if not fn:
             return
 
@@ -620,7 +620,7 @@ class DisassemblerFrame(ttk.Frame):
         top_frame.grid(row=0, column=0, sticky=tk.EW, pady=(0, 5))
         top_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(top_frame, text="选择 ROM/BIN 文件: ").grid(
+        ttk.Label(top_frame, text="选择 二进制文件: ").grid(
             row=0, column=0, sticky=tk.W
         )
         self.file_path_var = tk.StringVar()
@@ -690,9 +690,8 @@ class DisassemblerFrame(ttk.Frame):
 
     def load_and_disassemble(self):
         fn = filedialog.askopenfilename(
-            title="选择 ROM/BIN 文件",
+            title="选择 二进制文件",
             filetypes=[
-                ("ROM & BIN Files", "*.rom;*.bin"),
                 ("All Files", "*.*"),
             ],
         )
@@ -792,20 +791,23 @@ class MainApplication(tk.Tk):
 
         tools_menu = tk.Menu(menubar, tearoff=0)
         tools_menu.add_command(
-            label="BASIC 解码 (BIN -> 源码)",
+            label="BASIC 解码 (P -> 源码)",
             command=self.load_basic_decoder_module,
         )
         tools_menu.add_command(
-            label="BASIC 编码 (BASIC -> BIN)",
+            label="BASIC 编码 (BASIC -> P)",
             command=self.load_basic_to_bin_module,
         )
         tools_menu.add_command(
-            label="BIN 转 WAV 音频 (BIN -> WAV)",
+            label="P 转 WAV 音频 (P -> WAV)",
             command=self.load_bin_to_wav_module,
         )
         tools_menu.add_separator()
         tools_menu.add_command(
-            label="ROM/BIN 文件浏览器", command=self.load_hex_viewer_module
+            label="二进制文件浏览", command=self.load_hex_viewer_module
+        )
+        tools_menu.add_command(
+            label="P 文件浏览", command=self.load_p_viewer_module
         )
         tools_menu.add_command(
             label="ROM 反汇编 (Z80)", command=self.load_disassembler_module
@@ -899,6 +901,9 @@ class MainApplication(tk.Tk):
 
     def load_hex_viewer_module(self):
         self.switch_frame(HexViewerFrame)
+
+    def load_p_viewer_module(self):
+        self.switch_frame(PViewerFrame)
 
     def load_disassembler_module(self):
         self.switch_frame(DisassemblerFrame)

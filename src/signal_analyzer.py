@@ -146,7 +146,7 @@ class SignalAnalyzerFrame(ttk.Frame):
         self.btn_calc_hist.pack(fill="x", ipady=5, pady=(0, 15))
 
         ttk.Label(button_container, text="全自动解码与固件提取：", foreground="gray", font=("微软雅黑", 10)).pack(anchor="w", pady=(0, 4))
-        self.btn_export = ttk.Button(button_container, text="🚀 全文件解码并导出 .bin", command=self.export_bin, state="disabled")
+        self.btn_export = ttk.Button(button_container, text="🚀 全文件解码并导出 .p", command=self.export_p, state="disabled")
         self.btn_export.pack(fill="x", ipady=5, pady=(0, 5))
 
         # Bottom Status Frame
@@ -299,11 +299,11 @@ class SignalAnalyzerFrame(ttk.Frame):
         self.lbl_status.config(text=f"全局分析成功！共抽取 {len(self.all_file_integrals)} 个有效积分样本点。")
         self.update_plot()
 
-    def export_bin(self):
+    def export_p(self):
         if self.audio_data is None:
             return
 
-        save_path = filedialog.asksaveasfilename(defaultextension=".bin", filetypes=[("Binary files", "*.bin")])
+        save_path = filedialog.asksaveasfilename(defaultextension=".p", filetypes=[("P files", "*.p")])
         if not save_path:
             return
 
@@ -352,19 +352,19 @@ class SignalAnalyzerFrame(ttk.Frame):
             with open(save_path, "wb") as f:
                 f.write(bytes(byte_chunks))
 
-            self.lbl_status.config(text="固件 BIN 数据写出成功。")
+            self.lbl_status.config(text="固件 P 数据写出成功。")
 
             if messagebox.askyesno("导出成功",
                                    f"固件解码流提取成功！\n共捕获: {len(valid_bits)} bits ({len(byte_chunks)} 字节)\n\n是否立即启动协议头检索并分离纯数据 (.rom) ？"):
-                self.parse_bin_to_rom(save_path)
+                self.parse_p_to_rom(save_path)
 
         except Exception as e:
             self.lbl_status.config(text="文件磁盘写入故障。")
             messagebox.showerror("写入失败", f"向硬盘写入文件时发生异常错误:\n{str(e)}")
 
-    def parse_bin_to_rom(self, bin_path):
+    def parse_p_to_rom(self, p_path):
         try:
-            with open(bin_path, 'rb') as f:
+            with open(p_path, 'rb') as f:
                 raw_bytes = f.read()
 
             target_header = bytes.fromhex("ED546FD650")
@@ -406,7 +406,7 @@ class SignalAnalyzerFrame(ttk.Frame):
 
             out_rom_path = filedialog.asksaveasfilename(defaultextension=".rom", filetypes=[("ROM Files", "*.rom")],
                 title="选择要保存的纯数据 .rom 文件位置",
-                initialfile=os.path.splitext(os.path.basename(bin_path))[0] + ".rom")
+                initialfile=os.path.splitext(os.path.basename(p_path))[0] + ".rom")
             if not out_rom_path:
                 return
 
@@ -415,7 +415,7 @@ class SignalAnalyzerFrame(ttk.Frame):
 
             preamble_bytes = header_index
             messagebox.showinfo("ROM 分离成功", f"✅ 协议头全局匹配通过！\n\n"
-                                                f"📂 原始文件: {os.path.basename(bin_path)}\n"
+                                                f"📂 原始文件: {os.path.basename(p_path)}\n"
                                                 f"🔍 自动过滤前导杂波: {preamble_bytes} 字节\n"
                                                 f"📍 固件映射起始地址: 0x{start_address:04X}\n"
                                                 f"📦 纯净 ROM 大小: {len(pure_data)} 字节\n"
