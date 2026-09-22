@@ -5,7 +5,7 @@
 * This repository contains the documents, manual and analysis tools for the CAC-3 computer.
 ---
 
-### CAC-3Specifications:
+### CAC-3 Specifications:
 * manufacturer: 东深科教公司  
 * cpu:    Z80A  
 * memory: 16 kB  
