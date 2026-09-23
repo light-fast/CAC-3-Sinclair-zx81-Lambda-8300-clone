@@ -85,7 +85,7 @@ class BasicDecoderFrame(QWidget):
         self.txt_sys_bytes.setFont(QFont("Consolas", 10))
         self.txt_sys_bytes.setStyleSheet("background-color: #1E1E1E; color: #FFD700;")
         self.txt_sys_bytes.setReadOnly(True)
-        self.txt_sys_bytes.setMaximumHeight(180)
+        # self.txt_sys_bytes.setMaximumHeight(180)
         sys_layout.addWidget(self.txt_sys_bytes)
         
         sys_group.setLayout(sys_layout)
@@ -1369,7 +1369,7 @@ class Z80AssemblerFrame(QWidget):
         self.txt_output.setFont(QFont("Consolas", 10))
         self.txt_output.setStyleSheet("background-color: #0D0D0D; color: #00FF66;")
         self.txt_output.setReadOnly(True)
-        self.txt_output.setMaximumHeight(200)
+        # self.txt_output.setMaximumHeight(200)
         output_layout.addWidget(self.txt_output)
         
         output_group.setLayout(output_layout)
