@@ -7,6 +7,7 @@ import re
 from collections import deque
 from typing import Set, Dict, List, Tuple
 from z80dis import z80
+from basic_decoder import decode_cac3_byte
 
 
 class ControlFlowNode:
@@ -259,6 +260,53 @@ class FlowDisassembler:
         
         return self.nodes
     
+    def _find_unassembled_ranges(self) -> List[Tuple[int, int]]:
+        """
+        找出所有未被反汇编的数据地址范围
+        
+        返回:
+            [(start_addr, end_addr), ...] 未被反汇编的连续地址范围
+        """
+        unassembled_ranges = []
+        
+        # 收集所有指令覆盖的地址范围
+        covered_addrs = set()
+        for node in self.nodes.values():
+            for inst_addr, hex_bytes, inst_str in node.instructions:
+                inst_len = len(hex_bytes.split()) if hex_bytes != '??' else 1
+                for i in range(inst_len):
+                    covered_addrs.add(inst_addr + i)
+        
+        # 所有地址范围
+        all_addrs = set(range(self.base_addr, self.base_addr + self.data_len))
+        
+        # 未被指令覆盖的地址
+        unvisited = all_addrs - covered_addrs
+        
+        if not unvisited:
+            return unassembled_ranges
+        
+        # 将未访问的地址排序并分组为连续范围
+        sorted_unvisited = sorted(unvisited)
+        
+        start = sorted_unvisited[0]
+        prev = start
+        
+        for addr in sorted_unvisited[1:]:
+            if addr == prev + 1:
+                # 连续地址
+                prev = addr
+            else:
+                # 不连续，结束当前范围
+                unassembled_ranges.append((start, prev))
+                start = addr
+                prev = addr
+        
+        # 添加最后一个范围
+        unassembled_ranges.append((start, prev))
+        
+        return unassembled_ranges
+    
     def generate_output(self) -> str:
         """
         生成反汇编输出文本
@@ -274,7 +322,7 @@ class FlowDisassembler:
         lines.append(f"; TOTAL BYTES: {self.data_len}")
         lines.append(f"; ADDRESS RANGE: ${self.base_addr:04X} - ${self.base_addr + self.data_len - 1:04X}")
         lines.append(f"; BASIC BLOCKS: {len(self.nodes)}")
-        lines.append(f"; PROCRESSED ADDRESSES: {sorted(self.nodes.keys())}")
+        lines.append(f"; PROCESSED ADDRESSES: {len(self.visited)}")
         lines.append("")
         
         # 按地址排序输出基本块
@@ -304,6 +352,64 @@ class FlowDisassembler:
                 lines.append(line)
             
             lines.append("")
+        
+        # 输出未被反汇编的数据区
+        unassembled_ranges = self._find_unassembled_ranges()
+        
+        if unassembled_ranges:
+            lines.append("; ========================================")
+            lines.append("; UNASSEMBLED DATA AREAS")
+            lines.append("; ========================================")
+            lines.append(f"; TOTAL UNASSEMBLED BYTES: {sum(end - start + 1 for start, end in unassembled_ranges)}")
+            lines.append("")
+            
+            for start, end in unassembled_ranges:
+                lines.append(f"; === DATA AREA ${start:04X} - ${end:04X} ===")
+                lines.append(f"; SIZE: {end - start + 1} BYTES")
+                lines.append("")
+                
+                # 按每行16字节输出数据，显示十六进制和字符
+                addr = start
+                while addr <= end:
+                    offset = addr - self.base_addr
+                    # 计算当前行能输出的字节数
+                    remaining = end - addr + 1
+                    bytes_per_line = min(16, remaining)
+                    
+                    # 获取数据字节
+                    data_bytes = self.data[offset:offset + bytes_per_line]
+                    end_addr = addr + bytes_per_line - 1
+                    
+                    range_str = f"{addr:04X}-{end_addr:04X}"
+                    hex_label = f"[{range_str}]  HEX : "
+                    char_label = f"[{range_str}] CHAR : "
+                    
+                    # 十六进制字符串
+                    hex_cells = [f" {b:02X}" for b in data_bytes]
+                    hex_str = "".join(hex_cells)
+                    
+                    # 字符字符串
+                    char_cells = []
+                    for b in data_bytes:
+                        try:
+                            ch, _ = decode_cac3_byte(b)
+                            ch = ch.strip()
+                            if len(ch) > 1:
+                                ch = ch[0]
+                            elif len(ch) == 0:
+                                ch = "."
+                        except:
+                            ch = "."
+                        char_cells.append(f"{ch:>3s}")
+                    
+                    char_str = "".join(char_cells)
+                    
+                    lines.append(f"{hex_label}{hex_str}")
+                    lines.append(f"{char_label}{char_str}")
+                    
+                    addr += bytes_per_line
+                
+                lines.append("")
         
         return '\n'.join(lines)
     

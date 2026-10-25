@@ -374,7 +374,7 @@ class Z80Assembler:
             self.errors.append(f"Error assembling instruction '{mnemonic}': {str(e)}")
             return b''
     
-    def assemble(self, source: str, org_address: int = 0x0000) -> Tuple[bytes, List[str], List[str]]:
+    def assemble(self, source: str, org_address: int = 0x0000) -> Tuple[bytes, int, List[str], List[str]]:
         """
         Assemble source code into machine code.
         
@@ -383,7 +383,7 @@ class Z80Assembler:
             org_address: Origin address (default 0x0000)
         
         Returns:
-            Tuple of (machine_code, errors, warnings)
+            Tuple of (machine_code, actual_org_address, errors, warnings)
         """
         try:
             self.org_address = org_address
@@ -421,13 +421,13 @@ class Z80Assembler:
                     self.machine_code.extend(code)
                     self.current_address += len(code)
             
-            return bytes(self.machine_code), self.errors, self.warnings
+            return bytes(self.machine_code), self.org_address, self.errors, self.warnings
         except Exception as e:
             self.errors.append(f"Fatal assembly error: {str(e)}")
-            return b'', self.errors, self.warnings
+            return b'', org_address, self.errors, self.warnings
 
 
-def assemble_z80_source(source: str, org_address: int = 0x0000) -> Tuple[bytes, List[str], List[str]]:
+def assemble_z80_source(source: str, org_address: int = 0x0000) -> Tuple[bytes, int, List[str], List[str]]:
     """
     Convenience function to assemble Z80 source code.
     
@@ -436,7 +436,64 @@ def assemble_z80_source(source: str, org_address: int = 0x0000) -> Tuple[bytes, 
         org_address: Origin address (default 0x0000)
     
     Returns:
-        Tuple of (machine_code, errors, warnings)
+        Tuple of (machine_code, actual_org_address, errors, warnings)
     """
     assembler = Z80Assembler()
     return assembler.assemble(source, org_address)
+
+
+def convert_obj_to_p(machine_code: bytes, start_address: int = 0x0000) -> bytes:
+    """
+    Convert assembled machine code (OBJ) to CAC-3 P file format (wToVP).
+    
+    The wToVP format is used for Z80 machine code files saved from monitoring mode.
+    Format:
+    - Bytes 0-4: ROM header "ED 54 6F D6 50" (mToVP - Memory To Voice taPe)
+    - Bytes 5-6: Start address (big-endian)
+    - Bytes 7-8: Data length (big-endian)
+    - Bytes 9+: Actual machine code data
+    
+    Args:
+        machine_code: Assembled machine code bytes
+        start_address: Start address for the code (default 0x0000)
+    
+    Returns:
+        P file format bytes ready for WAV encoding or direct use
+    """
+    # ROM header for wToVP format
+    header = bytes.fromhex("ED546FD650")
+    
+    # Start address (2 bytes, big-endian)
+    addr_bytes = start_address.to_bytes(2, byteorder='big')
+    
+    # Data length (2 bytes, big-endian)
+    length = len(machine_code)
+    length_bytes = length.to_bytes(2, byteorder='big')
+    
+    # Construct P file
+    p_file = header + addr_bytes + length_bytes + machine_code
+    
+    return p_file
+
+
+def assemble_to_p_file(source: str, org_address: int = 0x0000) -> Tuple[bytes, List[str], List[str]]:
+    """
+    Assemble Z80 source code directly to P file format.
+    
+    This is a convenience function that combines assembly and P file conversion.
+    
+    Args:
+        source: Assembly source code
+        org_address: Origin address (default 0x0000)
+    
+    Returns:
+        Tuple of (p_file_data, errors, warnings)
+    """
+    machine_code, actual_org_addr, errors, warnings = assemble_z80_source(source, org_address)
+    
+    if errors:
+        return b'', errors, warnings
+    
+    p_file_data = convert_obj_to_p(machine_code, actual_org_addr)
+    
+    return p_file_data, errors, warnings

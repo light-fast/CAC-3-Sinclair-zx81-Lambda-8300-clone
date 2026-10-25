@@ -13,7 +13,7 @@ from basic_encoder import basic_to_wav, encode_basic_text_to_cac3_p
 from hex_viewer_pyqt import format_hex_and_char_bytes
 from z80_disasm import disassemble_z80_bytes
 from z80_flow_disasm import disassemble_z80_flow
-from z80_assembler import assemble_z80_source
+from z80_assembler import assemble_z80_source, convert_obj_to_p
 
 # Import PyQt versions of analyzer modules
 from audio_decoder_pyqt import AudioDecoderFrame
@@ -1095,6 +1095,7 @@ class DisassemblerFrame(QWidget):
         self.root_app = root_app
         self.loaded_data = None  # Store loaded file data for reuse
         self.loaded_file_path = None  # Store loaded file path
+        self.last_search_text = ""  # Store last search text
         self.init_ui()
 
     def init_ui(self):
@@ -1153,6 +1154,32 @@ class DisassemblerFrame(QWidget):
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
 
+        # Search frame
+        search_frame = QFrame()
+        search_frame.setFixedHeight(40)
+        search_layout = QHBoxLayout(search_frame)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        
+        search_layout.addWidget(QLabel("搜索:"))
+        self.var_search = QLineEdit()
+        self.var_search.setPlaceholderText("输入搜索内容...")
+        self.var_search.returnPressed.connect(self.search_text)
+        search_layout.addWidget(self.var_search, 1)
+        
+        self.btn_search = QPushButton("🔍 查找")
+        self.btn_search.clicked.connect(self.search_text)
+        search_layout.addWidget(self.btn_search)
+        
+        self.btn_search_next = QPushButton("下一个")
+        self.btn_search_next.clicked.connect(self.search_next)
+        search_layout.addWidget(self.btn_search_next)
+        
+        self.btn_search_prev = QPushButton("上一个")
+        self.btn_search_prev.clicked.connect(self.search_prev)
+        search_layout.addWidget(self.btn_search_prev)
+        
+        layout.addWidget(search_frame)
+
         # Disassembly output
         dis_group = QGroupBox(" Z80 反汇编代码输出 (地址 : 机器码 : 指令) ")
         dis_layout = QVBoxLayout()
@@ -1161,11 +1188,146 @@ class DisassemblerFrame(QWidget):
         self.txt_disasm.setFont(QFont("Consolas", 10, QFont.Bold))
         self.txt_disasm.setStyleSheet("background-color: #121212; color: #00E5FF;")
         self.txt_disasm.setReadOnly(True)
+        self.txt_disasm.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        
+        # Set consistent selection color
+        palette = self.txt_disasm.palette()
+        palette.setColor(QPalette.Highlight, QColor(51, 153, 255))
+        palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
+        self.txt_disasm.setPalette(palette)
+        
+        # Connect cursor position changed signal
+        self.txt_disasm.cursorPositionChanged.connect(self.update_cursor_position)
+        self.txt_disasm.selectionChanged.connect(self.update_selection_info)
+        
         dis_layout.addWidget(self.txt_disasm)
+        
+        # Status bar for position display
+        self.status_bar = QLabel("总行数: 0 | 行: 0, 列: 0")
+        self.status_bar.setFont(QFont("Consolas", 9))
+        self.status_bar.setStyleSheet("background-color: #ecf0f1; padding: 4px; border: 1px solid #bdc3c7;")
+        self.status_bar.setFixedHeight(28)
+        dis_layout.addWidget(self.status_bar)
         
         dis_group.setLayout(dis_layout)
         layout.addWidget(dis_group, 1)
 
+    def update_cursor_position(self):
+        """Update cursor position display in status bar"""
+        cursor = self.txt_disasm.textCursor()
+        text = self.txt_disasm.toPlainText()
+        
+        # Get total line count
+        total_lines = text.count('\n') + 1 if text else 0
+        
+        # Get current line and column
+        line = cursor.blockNumber() + 1
+        column = cursor.columnNumber() + 1
+        
+        self.status_bar.setText(f"总行数: {total_lines} | 行: {line}, 列: {column}")
+    
+    def update_selection_info(self):
+        """Update selection info when text is selected"""
+        cursor = self.txt_disasm.textCursor()
+        if cursor.hasSelection():
+            selected_text = cursor.selectedText()
+            self.status_bar.setText(f"已选中 {len(selected_text)} 个字符")
+        else:
+            self.update_cursor_position()
+    
+    def search_text(self):
+        """Search for text in disassembly output"""
+        search_text = self.var_search.text().strip()
+        if not search_text:
+            return
+        
+        self.last_search_text = search_text
+        document = self.txt_disasm.document()
+        cursor = self.txt_disasm.textCursor()
+        
+        # Start search from current position
+        found = document.find(search_text, cursor)
+        
+        if found.isNull():
+            # If not found, search from beginning
+            cursor.movePosition(QTextCursor.Start)
+            found = document.find(search_text, cursor)
+            
+            if found.isNull():
+                self.status_bar.setText(f"未找到: '{search_text}'")
+            else:
+                self.txt_disasm.setTextCursor(found)
+                self.status_bar.setText(f"找到: '{search_text}' (从开头)")
+        else:
+            self.txt_disasm.setTextCursor(found)
+            self.status_bar.setText(f"找到: '{search_text}'")
+    
+    def search_next(self):
+        """Search for next occurrence"""
+        search_text = self.var_search.text().strip()
+        if not search_text:
+            if self.last_search_text:
+                search_text = self.last_search_text
+            else:
+                return
+        
+        self.last_search_text = search_text
+        document = self.txt_disasm.document()
+        cursor = self.txt_disasm.textCursor()
+        
+        # Move cursor past current selection
+        cursor.movePosition(QTextCursor.NextCharacter)
+        
+        found = document.find(search_text, cursor)
+        
+        if found.isNull():
+            # Wrap around to beginning
+            cursor.movePosition(QTextCursor.Start)
+            found = document.find(search_text, cursor)
+            
+            if found.isNull():
+                self.status_bar.setText(f"未找到下一个: '{search_text}'")
+            else:
+                self.txt_disasm.setTextCursor(found)
+                self.status_bar.setText(f"找到下一个: '{search_text}' (从开头)")
+        else:
+            self.txt_disasm.setTextCursor(found)
+            self.status_bar.setText(f"找到下一个: '{search_text}'")
+    
+    def search_prev(self):
+        """Search for previous occurrence"""
+        search_text = self.var_search.text().strip()
+        if not search_text:
+            if self.last_search_text:
+                search_text = self.last_search_text
+            else:
+                return
+        
+        self.last_search_text = search_text
+        document = self.txt_disasm.document()
+        cursor = self.txt_disasm.textCursor()
+        
+        # Move cursor before current selection
+        cursor.movePosition(QTextCursor.PreviousCharacter)
+        
+        # Search backward
+        flags = QTextDocument.FindBackward
+        found = document.find(search_text, cursor, flags)
+        
+        if found.isNull():
+            # Wrap around to end
+            cursor.movePosition(QTextCursor.End)
+            found = document.find(search_text, cursor, flags)
+            
+            if found.isNull():
+                self.status_bar.setText(f"未找到上一个: '{search_text}'")
+            else:
+                self.txt_disasm.setTextCursor(found)
+                self.status_bar.setText(f"找到上一个: '{search_text}' (从末尾)")
+        else:
+            self.txt_disasm.setTextCursor(found)
+            self.status_bar.setText(f"找到上一个: '{search_text}'")
+    
     def on_mode_changed(self, mode):
         """Handle mode change - auto-refresh if data is loaded"""
         if self.loaded_data is not None:
@@ -1214,6 +1376,9 @@ class DisassemblerFrame(QWidget):
         self.lbl_status.setText(f"成功{mode_str}反汇编 {len(data):,} 字节 | 起始地址: {start_display}")
         self.txt_disasm.setText(disassembled_code)
         self.btn_save.setEnabled(True)
+        
+        # Update status bar with line count
+        self.update_cursor_position()
 
     def load_and_disassemble(self):
         last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
@@ -1346,14 +1511,14 @@ class Z80AssemblerFrame(QWidget):
         
         sample_code = (
             "; Z80 Assembly Sample Program\n"
-            "        ORG $0000\n"
+            "        ORG 4396H\n"
             "\n"
-            "        LD A, $55\n"
-            "        LD B, $AA\n"
+            "        LD A, 55H\n"
+            "        LD B, AAH\n"
             "        ADD A, B\n"
             "        LD C, A\n"
             "        NOP\n"
-            "        JP $0000\n"
+            "        JP ORG\n"
         )
         self.txt_editor.setText(sample_code)
         
@@ -1457,12 +1622,12 @@ class Z80AssemblerFrame(QWidget):
         
         try:
             # Perform assembly
-            machine_code, errors, warnings = assemble_z80_source(source, org_addr)
+            machine_code, actual_org_addr, errors, warnings = assemble_z80_source(source, org_addr)
             
             # Display output
             output_lines = []
             output_lines.append(f"=== 汇编结果 ===")
-            output_lines.append(f"起始地址: ${org_addr:04X}")
+            output_lines.append(f"起始地址: ${actual_org_addr:04X}")
             output_lines.append(f"生成字节数: {len(machine_code)}")
             
             if errors:
@@ -1485,14 +1650,14 @@ class Z80AssemblerFrame(QWidget):
             if errors:
                 QMessageBox.warning(self, "汇编完成但有错误", f"汇编完成，但有 {len(errors)} 个错误。请查看输出信息。")
             else:
-                # Save OBJ file
-                self._save_obj_file(machine_code, org_addr)
+                # Save OBJ file using actual ORG address from assembly
+                self._save_obj_file(machine_code, actual_org_addr)
         except Exception as e:
             QMessageBox.critical(self, "汇编失败", f"汇编过程中发生错误:\n{str(e)}")
             self.txt_output.setText(f"汇编失败:\n{str(e)}")
 
     def _save_obj_file(self, machine_code, org_addr):
-        """Save the machine code as an OBJ file."""
+        """Save the machine code as OBJ and P files."""
         last_dir = self.root_app.get_last_directory() if self.root_app else os.getcwd()
         
         # Generate default filename
@@ -1513,15 +1678,23 @@ class Z80AssemblerFrame(QWidget):
             self.root_app.save_last_directory(fn)
         
         try:
+            # Save OBJ file
             with open(fn, "wb") as f:
                 f.write(machine_code)
             
+            # Generate and save P file
+            p_file_data = convert_obj_to_p(machine_code, org_addr)
+            p_file_path = os.path.splitext(fn)[0] + ".p"
+            with open(p_file_path, "wb") as f:
+                f.write(p_file_data)
+            
             QMessageBox.information(
                 self, "汇编成功",
-                f"✓ OBJ 文件生成完成！\n路径: {fn}\n大小: {len(machine_code)} 字节\n起始地址: ${org_addr:04X}"
+                f"✓ OBJ 文件生成完成！\n路径: {fn}\n大小: {len(machine_code)} 字节\n起始地址: ${org_addr:04X}\n\n"
+                f"✓ P 文件同时生成完成！\n路径: {p_file_path}\n大小: {len(p_file_data)} 字节"
             )
         except Exception as e:
-            QMessageBox.critical(self, "保存失败", f"无法写入 OBJ 文件:\n{str(e)}")
+            QMessageBox.critical(self, "保存失败", f"无法写入文件:\n{str(e)}")
 
 
 # ==========================================
