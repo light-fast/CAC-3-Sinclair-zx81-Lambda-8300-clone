@@ -3,7 +3,7 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QGridLayout, QLabel, QLineEdit, QPushButton, QTextEdit, 
                              QFrame, QSplitter, QFileDialog, QMessageBox, QComboBox,
-                             QGroupBox, QScrollArea, QSizePolicy)
+                             QGroupBox, QScrollArea, QSizePolicy, QCheckBox)
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QSettings
 from PyQt5.QtGui import QFont, QColor, QPalette, QTextCursor
 
@@ -1139,6 +1139,12 @@ class DisassemblerFrame(QWidget):
         self.combo_mode.currentTextChanged.connect(self.on_mode_changed)
         config_layout.addWidget(self.combo_mode)
         
+        config_layout.addWidget(QLabel("冷代码扫描:"))
+        self.chk_cold_code = QCheckBox()
+        self.chk_cold_code.setChecked(True)
+        self.chk_cold_code.stateChanged.connect(self.on_cold_code_changed)
+        config_layout.addWidget(self.chk_cold_code)
+        
         config_layout.addStretch()
         
         self.lbl_status = QLabel("准备就绪")
@@ -1332,6 +1338,11 @@ class DisassemblerFrame(QWidget):
         """Handle mode change - auto-refresh if data is loaded"""
         if self.loaded_data is not None:
             self.perform_disassembly()
+    
+    def on_cold_code_changed(self, state):
+        """Handle cold code scan checkbox change - auto-refresh if data is loaded"""
+        if self.loaded_data is not None:
+            self.perform_disassembly()
 
     def perform_disassembly(self):
         """Perform disassembly with current settings and loaded data"""
@@ -1364,7 +1375,8 @@ class DisassemblerFrame(QWidget):
         mode = self.combo_mode.currentText()
         
         if mode == "控制流反汇编":
-            disassembled_code = disassemble_z80_flow(data, base_addr=base_addr, start_addr=start_addr)
+            cold_code_scan = self.chk_cold_code.isChecked()
+            disassembled_code = disassemble_z80_flow(data, base_addr=base_addr, start_addr=start_addr, cold_code_scan=cold_code_scan)
             mode_str = "控制流"
         else:
             disassembled_code = disassemble_z80_bytes(data, base_addr=base_addr)
